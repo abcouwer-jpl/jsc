@@ -1,0 +1,479 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - jpeg-safe/jctrans.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">jpeg-safe</a> - jctrans.c<span style="font-size: 80%;"> (source / <a href="jctrans.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">147</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2020-11-24 12:24:12</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * jctrans.c
+<span class="lineNum">       3 </span>            :  *
+<span class="lineNum">       4 </span>            :  * Copyright (C) 1995-1998, Thomas G. Lane.
+<span class="lineNum">       5 </span>            :  * Modified 2000-2017 by Guido Vollbeding.
+<span class="lineNum">       6 </span>            :  * This file is part of the Independent JPEG Group's software.
+<span class="lineNum">       7 </span>            :  * For conditions of distribution and use, see the accompanying README file.
+<span class="lineNum">       8 </span>            :  *
+<span class="lineNum">       9 </span>            :  * This file contains library routines for transcoding compression,
+<span class="lineNum">      10 </span>            :  * that is, writing raw DCT coefficient arrays to an output JPEG file.
+<span class="lineNum">      11 </span>            :  * The routines in jcapimin.c will also be needed by a transcoder.
+<span class="lineNum">      12 </span>            :  */
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : #define JPEG_INTERNALS
+<span class="lineNum">      15 </span>            : #include &quot;jinclude.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;jpeglib.h&quot;
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : /* Forward declarations */
+<span class="lineNum">      20 </span>            : LOCAL(void) transencode_master_selection
+<span class="lineNum">      21 </span>            :         JPP((j_compress_ptr cinfo, jvirt_barray_ptr * coef_arrays));
+<span class="lineNum">      22 </span>            : LOCAL(void) transencode_coef_controller
+<span class="lineNum">      23 </span>            :         JPP((j_compress_ptr cinfo, jvirt_barray_ptr * coef_arrays));
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            : 
+<span class="lineNum">      26 </span>            : /*
+<span class="lineNum">      27 </span>            :  * Compression initialization for writing raw-coefficient data.
+<span class="lineNum">      28 </span>            :  * Before calling this, all parameters and a data destination must be set up.
+<span class="lineNum">      29 </span>            :  * Call jpeg_finish_compress() to actually write the data.
+<span class="lineNum">      30 </span>            :  *
+<span class="lineNum">      31 </span>            :  * The number of passed virtual arrays must match cinfo-&gt;num_components.
+<span class="lineNum">      32 </span>            :  * Note that the virtual arrays need not be filled or even realized at
+<span class="lineNum">      33 </span>            :  * the time write_coefficients is called; indeed, if the virtual arrays
+<span class="lineNum">      34 </span>            :  * were requested from this compression object's memory manager, they
+<span class="lineNum">      35 </span>            :  * typically will be realized during this routine and filled afterwards.
+<span class="lineNum">      36 </span>            :  */
+<a name="37"><span class="lineNum">      37 </span>            : </a>
+<span class="lineNum">      38 </span>            : GLOBAL(void)
+<span class="lineNum">      39 </span><span class="lineNoCov">          0 : jpeg_write_coefficients (j_compress_ptr cinfo, jvirt_barray_ptr * coef_arrays)</span>
+<span class="lineNum">      40 </span>            : {
+<span class="lineNum">      41 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;global_state != CSTATE_START)</span>
+<span class="lineNum">      42 </span><span class="lineNoCov">          0 :     ERREXIT1(cinfo, JERR_BAD_STATE, cinfo-&gt;global_state);</span>
+<span class="lineNum">      43 </span>            :   /* Mark all tables to be written */
+<span class="lineNum">      44 </span><span class="lineNoCov">          0 :   jpeg_suppress_tables(cinfo, FALSE);</span>
+<span class="lineNum">      45 </span>            :   /* (Re)initialize error mgr and destination modules */
+<span class="lineNum">      46 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;err-&gt;reset_error_mgr) ((j_common_ptr) cinfo);</span>
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;dest-&gt;init_destination) (cinfo);</span>
+<span class="lineNum">      48 </span>            :   /* Perform master selection of active modules */
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :   transencode_master_selection(cinfo, coef_arrays);</span>
+<span class="lineNum">      50 </span>            :   /* Wait for jpeg_finish_compress() call */
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 :   cinfo-&gt;next_scanline = 0;  /* so jpeg_write_marker works */</span>
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :   cinfo-&gt;global_state = CSTATE_WRCOEFS;</span>
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span>            : 
+<span class="lineNum">      56 </span>            : /*
+<span class="lineNum">      57 </span>            :  * Initialize the compression object with default parameters,
+<span class="lineNum">      58 </span>            :  * then copy from the source object all parameters needed for lossless
+<span class="lineNum">      59 </span>            :  * transcoding.  Parameters that can be varied without loss (such as
+<span class="lineNum">      60 </span>            :  * scan script and Huffman optimization) are left in their default states.
+<span class="lineNum">      61 </span>            :  */
+<a name="62"><span class="lineNum">      62 </span>            : </a>
+<span class="lineNum">      63 </span>            : GLOBAL(void)
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 : jpeg_copy_critical_parameters (j_decompress_ptr srcinfo,</span>
+<span class="lineNum">      65 </span>            :                                j_compress_ptr dstinfo)
+<span class="lineNum">      66 </span>            : {
+<span class="lineNum">      67 </span>            :   JQUANT_TBL ** qtblptr;
+<span class="lineNum">      68 </span>            :   jpeg_component_info *incomp, *outcomp;
+<span class="lineNum">      69 </span>            :   JQUANT_TBL *c_quant, *slot_quant;
+<span class="lineNum">      70 </span>            :   int tblno, ci, coefi;
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span>            :   /* Safety check to ensure start_compress not called yet. */
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :   if (dstinfo-&gt;global_state != CSTATE_START)</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :     ERREXIT1(dstinfo, JERR_BAD_STATE, dstinfo-&gt;global_state);</span>
+<span class="lineNum">      75 </span>            :   /* Copy fundamental image dimensions */
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :   dstinfo-&gt;image_width = srcinfo-&gt;image_width;</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :   dstinfo-&gt;image_height = srcinfo-&gt;image_height;</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :   dstinfo-&gt;input_components = srcinfo-&gt;num_components;</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :   dstinfo-&gt;in_color_space = srcinfo-&gt;jpeg_color_space;</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :   dstinfo-&gt;jpeg_width = srcinfo-&gt;output_width;</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :   dstinfo-&gt;jpeg_height = srcinfo-&gt;output_height;</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :   dstinfo-&gt;min_DCT_h_scaled_size = srcinfo-&gt;min_DCT_h_scaled_size;</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :   dstinfo-&gt;min_DCT_v_scaled_size = srcinfo-&gt;min_DCT_v_scaled_size;</span>
+<span class="lineNum">      84 </span>            :   /* Initialize all parameters to default values */
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :   jpeg_set_defaults(dstinfo);</span>
+<span class="lineNum">      86 </span>            :   /* jpeg_set_defaults may choose wrong colorspace, eg YCbCr if input is RGB.
+<span class="lineNum">      87 </span>            :    * Fix it to get the right header markers for the image colorspace.
+<span class="lineNum">      88 </span>            :    * Note: Entropy table assignment in jpeg_set_colorspace
+<span class="lineNum">      89 </span>            :    * depends on color_transform.
+<span class="lineNum">      90 </span>            :    * Adaption is also required for setting the appropriate
+<span class="lineNum">      91 </span>            :    * entropy coding mode dependent on image data precision.
+<span class="lineNum">      92 </span>            :    */
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :   dstinfo-&gt;color_transform = srcinfo-&gt;color_transform;</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :   jpeg_set_colorspace(dstinfo, srcinfo-&gt;jpeg_color_space);</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :   dstinfo-&gt;data_precision = srcinfo-&gt;data_precision;</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :   dstinfo-&gt;arith_code = srcinfo-&gt;data_precision &gt; 8 ? TRUE : FALSE;</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :   dstinfo-&gt;CCIR601_sampling = srcinfo-&gt;CCIR601_sampling;</span>
+<span class="lineNum">      98 </span>            :   /* Copy the source's quantization tables. */
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :   for (tblno = 0; tblno &lt; NUM_QUANT_TBLS; tblno++) {</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :     if (srcinfo-&gt;quant_tbl_ptrs[tblno] != NULL) {</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :       qtblptr = &amp; dstinfo-&gt;quant_tbl_ptrs[tblno];</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :       if (*qtblptr == NULL)</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :         *qtblptr = jpeg_alloc_quant_table((j_common_ptr) dstinfo);</span>
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :       MEMCOPY((*qtblptr)-&gt;quantval,</span>
+<span class="lineNum">     105 </span>            :               srcinfo-&gt;quant_tbl_ptrs[tblno]-&gt;quantval,
+<span class="lineNum">     106 </span>            :               SIZEOF((*qtblptr)-&gt;quantval));
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :       (*qtblptr)-&gt;sent_table = FALSE;</span>
+<span class="lineNum">     108 </span>            :     }
+<span class="lineNum">     109 </span>            :   }
+<span class="lineNum">     110 </span>            :   /* Copy the source's per-component info.
+<span class="lineNum">     111 </span>            :    * Note we assume jpeg_set_defaults has allocated the dest comp_info array.
+<span class="lineNum">     112 </span>            :    */
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :   dstinfo-&gt;num_components = srcinfo-&gt;num_components;</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :   if (dstinfo-&gt;num_components &lt; 1 || dstinfo-&gt;num_components &gt; MAX_COMPONENTS)</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :     ERREXIT2(dstinfo, JERR_COMPONENT_COUNT, dstinfo-&gt;num_components,</span>
+<span class="lineNum">     116 </span>            :              MAX_COMPONENTS);
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :   for (ci = 0, incomp = srcinfo-&gt;comp_info, outcomp = dstinfo-&gt;comp_info;</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :        ci &lt; dstinfo-&gt;num_components; ci++, incomp++, outcomp++) {</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :     outcomp-&gt;component_id = incomp-&gt;component_id;</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     outcomp-&gt;h_samp_factor = incomp-&gt;h_samp_factor;</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :     outcomp-&gt;v_samp_factor = incomp-&gt;v_samp_factor;</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :     outcomp-&gt;quant_tbl_no = incomp-&gt;quant_tbl_no;</span>
+<span class="lineNum">     123 </span>            :     /* Make sure saved quantization table for component matches the qtable
+<span class="lineNum">     124 </span>            :      * slot.  If not, the input file re-used this qtable slot.
+<span class="lineNum">     125 </span>            :      * IJG encoder currently cannot duplicate this.
+<span class="lineNum">     126 </span>            :      */
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     tblno = outcomp-&gt;quant_tbl_no;</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     if (tblno &lt; 0 || tblno &gt;= NUM_QUANT_TBLS ||</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :         srcinfo-&gt;quant_tbl_ptrs[tblno] == NULL)</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :       ERREXIT1(dstinfo, JERR_NO_QUANT_TABLE, tblno);</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     slot_quant = srcinfo-&gt;quant_tbl_ptrs[tblno];</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :     c_quant = incomp-&gt;quant_table;</span>
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :     if (c_quant != NULL) {</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :       for (coefi = 0; coefi &lt; DCTSIZE2; coefi++) {</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :         if (c_quant-&gt;quantval[coefi] != slot_quant-&gt;quantval[coefi])</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :           ERREXIT1(dstinfo, JERR_MISMATCHED_QUANT_TABLE, tblno);</span>
+<span class="lineNum">     137 </span>            :       }
+<span class="lineNum">     138 </span>            :     }
+<span class="lineNum">     139 </span>            :     /* Note: we do not copy the source's entropy table assignments;
+<span class="lineNum">     140 </span>            :      * instead we rely on jpeg_set_colorspace to have made a suitable choice.
+<span class="lineNum">     141 </span>            :      */
+<span class="lineNum">     142 </span>            :   }
+<span class="lineNum">     143 </span>            :   /* Also copy JFIF version and resolution information, if available.
+<span class="lineNum">     144 </span>            :    * Strictly speaking this isn't &quot;critical&quot; info, but it's nearly
+<span class="lineNum">     145 </span>            :    * always appropriate to copy it if available.  In particular,
+<span class="lineNum">     146 </span>            :    * if the application chooses to copy JFIF 1.02 extension markers from
+<span class="lineNum">     147 </span>            :    * the source file, we need to copy the version to make sure we don't
+<span class="lineNum">     148 </span>            :    * emit a file that has 1.02 extensions but a claimed version of 1.01.
+<span class="lineNum">     149 </span>            :    */
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :   if (srcinfo-&gt;saw_JFIF_marker) {</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :     if (srcinfo-&gt;JFIF_major_version == 1 ||</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :         srcinfo-&gt;JFIF_major_version == 2) {</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :       dstinfo-&gt;JFIF_major_version = srcinfo-&gt;JFIF_major_version;</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :       dstinfo-&gt;JFIF_minor_version = srcinfo-&gt;JFIF_minor_version;</span>
+<span class="lineNum">     155 </span>            :     }
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :     dstinfo-&gt;density_unit = srcinfo-&gt;density_unit;</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :     dstinfo-&gt;X_density = srcinfo-&gt;X_density;</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :     dstinfo-&gt;Y_density = srcinfo-&gt;Y_density;</span>
+<span class="lineNum">     159 </span>            :   }
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     161 </span>            : 
+<a name="162"><span class="lineNum">     162 </span>            : </a>
+<span class="lineNum">     163 </span>            : LOCAL(void)
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 : jpeg_calc_trans_dimensions (j_compress_ptr cinfo)</span>
+<span class="lineNum">     165 </span>            : /* Do computations that are needed before master selection phase */
+<span class="lineNum">     166 </span>            : {
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;min_DCT_h_scaled_size != cinfo-&gt;min_DCT_v_scaled_size)</span>
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :     ERREXIT2(cinfo, JERR_BAD_DCTSIZE,</span>
+<span class="lineNum">     169 </span>            :              cinfo-&gt;min_DCT_h_scaled_size, cinfo-&gt;min_DCT_v_scaled_size);
+<span class="lineNum">     170 </span>            : 
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :   cinfo-&gt;block_size = cinfo-&gt;min_DCT_h_scaled_size;</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     173 </span>            : 
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span>            : /*
+<span class="lineNum">     176 </span>            :  * Master selection of compression modules for transcoding.
+<span class="lineNum">     177 </span>            :  * This substitutes for jcinit.c's initialization of the full compressor.
+<span class="lineNum">     178 </span>            :  */
+<a name="179"><span class="lineNum">     179 </span>            : </a>
+<span class="lineNum">     180 </span>            : LOCAL(void)
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 : transencode_master_selection (j_compress_ptr cinfo,</span>
+<span class="lineNum">     182 </span>            :                               jvirt_barray_ptr * coef_arrays)
+<span class="lineNum">     183 </span>            : {
+<span class="lineNum">     184 </span>            :   /* Do computations that are needed before master selection phase */
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :   jpeg_calc_trans_dimensions(cinfo);</span>
+<span class="lineNum">     186 </span>            : 
+<span class="lineNum">     187 </span>            :   /* Initialize master control (includes parameter checking/processing) */
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :   jinit_c_master_control(cinfo, TRUE /* transcode only */);</span>
+<span class="lineNum">     189 </span>            : 
+<span class="lineNum">     190 </span>            :   /* Entropy encoding: either Huffman or arithmetic coding. */
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;arith_code)</span>
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :     jinit_arith_encoder(cinfo);</span>
+<span class="lineNum">     193 </span>            :   else {
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :     jinit_huff_encoder(cinfo);</span>
+<span class="lineNum">     195 </span>            :   }
+<span class="lineNum">     196 </span>            : 
+<span class="lineNum">     197 </span>            :   /* We need a special coefficient buffer controller. */
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :   transencode_coef_controller(cinfo, coef_arrays);</span>
+<span class="lineNum">     199 </span>            : 
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :   jinit_marker_writer(cinfo);</span>
+<span class="lineNum">     201 </span>            : 
+<span class="lineNum">     202 </span>            :   /* We can now tell the memory manager to allocate virtual arrays. */
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;mem-&gt;realize_virt_arrays) ((j_common_ptr) cinfo);</span>
+<span class="lineNum">     204 </span>            : 
+<span class="lineNum">     205 </span>            :   /* Write the datastream header (SOI, JFIF) immediately.
+<span class="lineNum">     206 </span>            :    * Frame and scan headers are postponed till later.
+<span class="lineNum">     207 </span>            :    * This lets application insert special markers after the SOI.
+<span class="lineNum">     208 </span>            :    */
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;marker-&gt;write_file_header) (cinfo);</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span>            : 
+<span class="lineNum">     213 </span>            : /*
+<span class="lineNum">     214 </span>            :  * The rest of this file is a special implementation of the coefficient
+<span class="lineNum">     215 </span>            :  * buffer controller.  This is similar to jccoefct.c, but it handles only
+<span class="lineNum">     216 </span>            :  * output from presupplied virtual arrays.  Furthermore, we generate any
+<span class="lineNum">     217 </span>            :  * dummy padding blocks on-the-fly rather than expecting them to be present
+<span class="lineNum">     218 </span>            :  * in the arrays.
+<span class="lineNum">     219 </span>            :  */
+<span class="lineNum">     220 </span>            : 
+<span class="lineNum">     221 </span>            : /* Private buffer controller object */
+<span class="lineNum">     222 </span>            : 
+<span class="lineNum">     223 </span>            : typedef struct {
+<span class="lineNum">     224 </span>            :   struct jpeg_c_coef_controller pub; /* public fields */
+<span class="lineNum">     225 </span>            : 
+<span class="lineNum">     226 </span>            :   JDIMENSION iMCU_row_num;      /* iMCU row # within image */
+<span class="lineNum">     227 </span>            :   JDIMENSION mcu_ctr;           /* counts MCUs processed in current row */
+<span class="lineNum">     228 </span>            :   int MCU_vert_offset;          /* counts MCU rows within iMCU row */
+<span class="lineNum">     229 </span>            :   int MCU_rows_per_iMCU_row;    /* number of such rows needed */
+<span class="lineNum">     230 </span>            : 
+<span class="lineNum">     231 </span>            :   /* Virtual block array for each component. */
+<span class="lineNum">     232 </span>            :   jvirt_barray_ptr * whole_image;
+<span class="lineNum">     233 </span>            : 
+<span class="lineNum">     234 </span>            :   /* Workspace for constructing dummy blocks at right/bottom edges. */
+<span class="lineNum">     235 </span>            :   JBLOCKROW dummy_buffer[C_MAX_BLOCKS_IN_MCU];
+<span class="lineNum">     236 </span>            : } my_coef_controller;
+<span class="lineNum">     237 </span>            : 
+<span class="lineNum">     238 </span>            : typedef my_coef_controller * my_coef_ptr;
+<span class="lineNum">     239 </span>            : 
+<a name="240"><span class="lineNum">     240 </span>            : </a>
+<span class="lineNum">     241 </span>            : LOCAL(void)
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 : start_iMCU_row (j_compress_ptr cinfo)</span>
+<span class="lineNum">     243 </span>            : /* Reset within-iMCU-row counters for a new row */
+<span class="lineNum">     244 </span>            : {
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">     246 </span>            : 
+<span class="lineNum">     247 </span>            :   /* In an interleaved scan, an MCU row is the same as an iMCU row.
+<span class="lineNum">     248 </span>            :    * In a noninterleaved scan, an iMCU row has v_samp_factor MCU rows.
+<span class="lineNum">     249 </span>            :    * But at the bottom of the image, process only what's left.
+<span class="lineNum">     250 </span>            :    */
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;comps_in_scan &gt; 1) {</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :     coef-&gt;MCU_rows_per_iMCU_row = 1;</span>
+<span class="lineNum">     253 </span>            :   } else {
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :     if (coef-&gt;iMCU_row_num &lt; (cinfo-&gt;total_iMCU_rows-1))</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :       coef-&gt;MCU_rows_per_iMCU_row = cinfo-&gt;cur_comp_info[0]-&gt;v_samp_factor;</span>
+<span class="lineNum">     256 </span>            :     else
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :       coef-&gt;MCU_rows_per_iMCU_row = cinfo-&gt;cur_comp_info[0]-&gt;last_row_height;</span>
+<span class="lineNum">     258 </span>            :   }
+<span class="lineNum">     259 </span>            : 
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :   coef-&gt;mcu_ctr = 0;</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :   coef-&gt;MCU_vert_offset = 0;</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     263 </span>            : 
+<span class="lineNum">     264 </span>            : 
+<span class="lineNum">     265 </span>            : /*
+<span class="lineNum">     266 </span>            :  * Initialize for a processing pass.
+<span class="lineNum">     267 </span>            :  */
+<a name="268"><span class="lineNum">     268 </span>            : </a>
+<span class="lineNum">     269 </span>            : METHODDEF(void)
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 : start_pass_coef (j_compress_ptr cinfo, J_BUF_MODE pass_mode)</span>
+<span class="lineNum">     271 </span>            : {
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">     273 </span>            : 
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :   if (pass_mode != JBUF_CRANK_DEST)</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     ERREXIT(cinfo, JERR_BAD_BUFFER_MODE);</span>
+<span class="lineNum">     276 </span>            : 
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :   coef-&gt;iMCU_row_num = 0;</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :   start_iMCU_row(cinfo);</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     280 </span>            : 
+<span class="lineNum">     281 </span>            : 
+<span class="lineNum">     282 </span>            : /*
+<span class="lineNum">     283 </span>            :  * Process some data.
+<span class="lineNum">     284 </span>            :  * We process the equivalent of one fully interleaved MCU row (&quot;iMCU&quot; row)
+<span class="lineNum">     285 </span>            :  * per call, ie, v_samp_factor block rows for each component in the scan.
+<span class="lineNum">     286 </span>            :  * The data is obtained from the virtual arrays and fed to the entropy coder.
+<span class="lineNum">     287 </span>            :  * Returns TRUE if the iMCU row is completed, FALSE if suspended.
+<span class="lineNum">     288 </span>            :  *
+<span class="lineNum">     289 </span>            :  * NB: input_buf is ignored; it is likely to be a NULL pointer.
+<span class="lineNum">     290 </span>            :  */
+<a name="291"><span class="lineNum">     291 </span>            : </a>
+<span class="lineNum">     292 </span>            : METHODDEF(boolean)
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 : compress_output (j_compress_ptr cinfo, JSAMPIMAGE input_buf)</span>
+<span class="lineNum">     294 </span>            : {
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">     296 </span>            :   JDIMENSION MCU_col_num;       /* index of current MCU within row */
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :   JDIMENSION last_MCU_col = cinfo-&gt;MCUs_per_row - 1;</span>
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :   JDIMENSION last_iMCU_row = cinfo-&gt;total_iMCU_rows - 1;</span>
+<span class="lineNum">     299 </span>            :   int blkn, ci, xindex, yindex, yoffset, blockcnt;
+<span class="lineNum">     300 </span>            :   JDIMENSION start_col;
+<span class="lineNum">     301 </span>            :   JBLOCKARRAY buffer[MAX_COMPS_IN_SCAN];
+<span class="lineNum">     302 </span>            :   JBLOCKROW MCU_buffer[C_MAX_BLOCKS_IN_MCU];
+<span class="lineNum">     303 </span>            :   JBLOCKROW buffer_ptr;
+<span class="lineNum">     304 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     305 </span>            : 
+<span class="lineNum">     306 </span>            :   /* Align the virtual buffers for the components used in this scan. */
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :   for (ci = 0; ci &lt; cinfo-&gt;comps_in_scan; ci++) {</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :     compptr = cinfo-&gt;cur_comp_info[ci];</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :     buffer[ci] = (*cinfo-&gt;mem-&gt;access_virt_barray)</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :       ((j_common_ptr) cinfo, coef-&gt;whole_image[compptr-&gt;component_index],</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :        coef-&gt;iMCU_row_num * compptr-&gt;v_samp_factor,</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :        (JDIMENSION) compptr-&gt;v_samp_factor, FALSE);</span>
+<span class="lineNum">     313 </span>            :   }
+<span class="lineNum">     314 </span>            : 
+<span class="lineNum">     315 </span>            :   /* Loop to process one whole iMCU row */
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :   for (yoffset = coef-&gt;MCU_vert_offset; yoffset &lt; coef-&gt;MCU_rows_per_iMCU_row;</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :        yoffset++) {</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :     for (MCU_col_num = coef-&gt;mcu_ctr; MCU_col_num &lt; cinfo-&gt;MCUs_per_row;</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :          MCU_col_num++) {</span>
+<span class="lineNum">     320 </span>            :       /* Construct list of pointers to DCT blocks belonging to this MCU */
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :       blkn = 0;                 /* index of current DCT block within MCU */</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :       for (ci = 0; ci &lt; cinfo-&gt;comps_in_scan; ci++) {</span>
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :         compptr = cinfo-&gt;cur_comp_info[ci];</span>
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :         start_col = MCU_col_num * compptr-&gt;MCU_width;</span>
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :         blockcnt = (MCU_col_num &lt; last_MCU_col) ? compptr-&gt;MCU_width</span>
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :                                                 : compptr-&gt;last_col_width;</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :         for (yindex = 0; yindex &lt; compptr-&gt;MCU_height; yindex++) {</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :           if (coef-&gt;iMCU_row_num &lt; last_iMCU_row ||</span>
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :               yindex+yoffset &lt; compptr-&gt;last_row_height) {</span>
+<span class="lineNum">     330 </span>            :             /* Fill in pointers to real blocks in this row */
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :             buffer_ptr = buffer[ci][yindex+yoffset] + start_col;</span>
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :             for (xindex = 0; xindex &lt; blockcnt; xindex++)</span>
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :               MCU_buffer[blkn++] = buffer_ptr++;</span>
+<span class="lineNum">     334 </span>            :           } else {
+<span class="lineNum">     335 </span>            :             /* At bottom of image, need a whole row of dummy blocks */
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :             xindex = 0;</span>
+<span class="lineNum">     337 </span>            :           }
+<span class="lineNum">     338 </span>            :           /* Fill in any dummy blocks needed in this row.
+<span class="lineNum">     339 </span>            :            * Dummy blocks are filled in the same way as in jccoefct.c:
+<span class="lineNum">     340 </span>            :            * all zeroes in the AC entries, DC entries equal to previous
+<span class="lineNum">     341 </span>            :            * block's DC value.  The init routine has already zeroed the
+<span class="lineNum">     342 </span>            :            * AC entries, so we need only set the DC entries correctly.
+<span class="lineNum">     343 </span>            :            */
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :           for (; xindex &lt; compptr-&gt;MCU_width; xindex++) {</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :             MCU_buffer[blkn] = coef-&gt;dummy_buffer[blkn];</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :             MCU_buffer[blkn][0][0] = MCU_buffer[blkn-1][0][0];</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :             blkn++;</span>
+<span class="lineNum">     348 </span>            :           }
+<span class="lineNum">     349 </span>            :         }
+<span class="lineNum">     350 </span>            :       }
+<span class="lineNum">     351 </span>            :       /* Try to write the MCU. */
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :       if (! (*cinfo-&gt;entropy-&gt;encode_mcu) (cinfo, MCU_buffer)) {</span>
+<span class="lineNum">     353 </span>            :         /* Suspension forced; update state counters and exit */
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :         coef-&gt;MCU_vert_offset = yoffset;</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :         coef-&gt;mcu_ctr = MCU_col_num;</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     357 </span>            :       }
+<span class="lineNum">     358 </span>            :     }
+<span class="lineNum">     359 </span>            :     /* Completed an MCU row, but perhaps not an iMCU row */
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :     coef-&gt;mcu_ctr = 0;</span>
+<span class="lineNum">     361 </span>            :   }
+<span class="lineNum">     362 </span>            :   /* Completed the iMCU row, advance counters for next one */
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :   coef-&gt;iMCU_row_num++;</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :   start_iMCU_row(cinfo);</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :   return TRUE;</span>
+<span class="lineNum">     366 </span>            : }
+<span class="lineNum">     367 </span>            : 
+<span class="lineNum">     368 </span>            : 
+<span class="lineNum">     369 </span>            : /*
+<span class="lineNum">     370 </span>            :  * Initialize coefficient buffer controller.
+<span class="lineNum">     371 </span>            :  *
+<span class="lineNum">     372 </span>            :  * Each passed coefficient array must be the right size for that
+<span class="lineNum">     373 </span>            :  * coefficient: width_in_blocks wide and height_in_blocks high,
+<span class="lineNum">     374 </span>            :  * with unitheight at least v_samp_factor.
+<span class="lineNum">     375 </span>            :  */
+<a name="376"><span class="lineNum">     376 </span>            : </a>
+<span class="lineNum">     377 </span>            : LOCAL(void)
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 : transencode_coef_controller (j_compress_ptr cinfo,</span>
+<span class="lineNum">     379 </span>            :                              jvirt_barray_ptr * coef_arrays)
+<span class="lineNum">     380 </span>            : {
+<span class="lineNum">     381 </span>            :   my_coef_ptr coef;
+<span class="lineNum">     382 </span>            :   JBLOCKROW buffer;
+<span class="lineNum">     383 </span>            :   int i;
+<span class="lineNum">     384 </span>            : 
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :   coef = (my_coef_ptr)</span>
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;mem-&gt;alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,</span>
+<span class="lineNum">     387 </span>            :                                 SIZEOF(my_coef_controller));
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :   cinfo-&gt;coef = &amp;coef-&gt;pub;</span>
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 :   coef-&gt;pub.start_pass = start_pass_coef;</span>
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :   coef-&gt;pub.compress_data = compress_output;</span>
+<span class="lineNum">     391 </span>            : 
+<span class="lineNum">     392 </span>            :   /* Save pointer to virtual arrays */
+<span class="lineNum">     393 </span><span class="lineNoCov">          0 :   coef-&gt;whole_image = coef_arrays;</span>
+<span class="lineNum">     394 </span>            : 
+<span class="lineNum">     395 </span>            :   /* Allocate and pre-zero space for dummy DCT blocks. */
+<span class="lineNum">     396 </span><span class="lineNoCov">          0 :   buffer = (JBLOCKROW)</span>
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;mem-&gt;alloc_large) ((j_common_ptr) cinfo, JPOOL_IMAGE,</span>
+<span class="lineNum">     398 </span>            :                                 C_MAX_BLOCKS_IN_MCU * SIZEOF(JBLOCK));
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :   FMEMZERO((void FAR *) buffer, C_MAX_BLOCKS_IN_MCU * SIZEOF(JBLOCK));</span>
+<span class="lineNum">     400 </span><span class="lineNoCov">          0 :   for (i = 0; i &lt; C_MAX_BLOCKS_IN_MCU; i++) {</span>
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :     coef-&gt;dummy_buffer[i] = buffer + i;</span>
+<span class="lineNum">     402 </span>            :   }
+<span class="lineNum">     403 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

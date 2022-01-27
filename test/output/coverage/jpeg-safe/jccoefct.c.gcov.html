@@ -1,0 +1,530 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - jpeg-safe/jccoefct.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">jpeg-safe</a> - jccoefct.c<span style="font-size: 80%;"> (source / <a href="jccoefct.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">163</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2020-11-24 12:24:12</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">6</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * jccoefct.c
+<span class="lineNum">       3 </span>            :  *
+<span class="lineNum">       4 </span>            :  * Copyright (C) 1994-1997, Thomas G. Lane.
+<span class="lineNum">       5 </span>            :  * Modified 2003-2011 by Guido Vollbeding.
+<span class="lineNum">       6 </span>            :  * This file is part of the Independent JPEG Group's software.
+<span class="lineNum">       7 </span>            :  * For conditions of distribution and use, see the accompanying README file.
+<span class="lineNum">       8 </span>            :  *
+<span class="lineNum">       9 </span>            :  * This file contains the coefficient buffer controller for compression.
+<span class="lineNum">      10 </span>            :  * This controller is the top level of the JPEG compressor proper.
+<span class="lineNum">      11 </span>            :  * The coefficient buffer lies between forward-DCT and entropy encoding steps.
+<span class="lineNum">      12 </span>            :  */
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : #define JPEG_INTERNALS
+<span class="lineNum">      15 </span>            : #include &quot;jinclude.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;jpeglib.h&quot;
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : /* We use a full-image coefficient buffer when doing Huffman optimization,
+<span class="lineNum">      20 </span>            :  * and also for writing multiple-scan JPEG files.  In all cases, the DCT
+<span class="lineNum">      21 </span>            :  * step is run during the first pass, and subsequent passes need only read
+<span class="lineNum">      22 </span>            :  * the buffered coefficients.
+<span class="lineNum">      23 </span>            :  */
+<span class="lineNum">      24 </span>            : #ifdef ENTROPY_OPT_SUPPORTED
+<span class="lineNum">      25 </span>            : #define FULL_COEF_BUFFER_SUPPORTED
+<span class="lineNum">      26 </span>            : #else
+<span class="lineNum">      27 </span>            : #ifdef C_MULTISCAN_FILES_SUPPORTED
+<span class="lineNum">      28 </span>            : #define FULL_COEF_BUFFER_SUPPORTED
+<span class="lineNum">      29 </span>            : #endif
+<span class="lineNum">      30 </span>            : #endif
+<span class="lineNum">      31 </span>            : 
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span>            : /* Private buffer controller object */
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span>            : typedef struct {
+<span class="lineNum">      36 </span>            :   struct jpeg_c_coef_controller pub; /* public fields */
+<span class="lineNum">      37 </span>            : 
+<span class="lineNum">      38 </span>            :   JDIMENSION iMCU_row_num;      /* iMCU row # within image */
+<span class="lineNum">      39 </span>            :   JDIMENSION mcu_ctr;           /* counts MCUs processed in current row */
+<span class="lineNum">      40 </span>            :   int MCU_vert_offset;          /* counts MCU rows within iMCU row */
+<span class="lineNum">      41 </span>            :   int MCU_rows_per_iMCU_row;    /* number of such rows needed */
+<span class="lineNum">      42 </span>            : 
+<span class="lineNum">      43 </span>            :   /* For single-pass compression, it's sufficient to buffer just one MCU
+<span class="lineNum">      44 </span>            :    * (although this may prove a bit slow in practice).  We allocate a
+<span class="lineNum">      45 </span>            :    * workspace of C_MAX_BLOCKS_IN_MCU coefficient blocks, and reuse it for each
+<span class="lineNum">      46 </span>            :    * MCU constructed and sent.  (On 80x86, the workspace is FAR even though
+<span class="lineNum">      47 </span>            :    * it's not really very big; this is to keep the module interfaces unchanged
+<span class="lineNum">      48 </span>            :    * when a large coefficient buffer is necessary.)
+<span class="lineNum">      49 </span>            :    * In multi-pass modes, this array points to the current MCU's blocks
+<span class="lineNum">      50 </span>            :    * within the virtual arrays.
+<span class="lineNum">      51 </span>            :    */
+<span class="lineNum">      52 </span>            :   JBLOCKROW MCU_buffer[C_MAX_BLOCKS_IN_MCU];
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span>            :   /* In multi-pass modes, we need a virtual block array for each component. */
+<span class="lineNum">      55 </span>            :   jvirt_barray_ptr whole_image[MAX_COMPONENTS];
+<span class="lineNum">      56 </span>            : } my_coef_controller;
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span>            : typedef my_coef_controller * my_coef_ptr;
+<span class="lineNum">      59 </span>            : 
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span>            : /* Forward declarations */
+<span class="lineNum">      62 </span>            : METHODDEF(boolean) compress_data
+<span class="lineNum">      63 </span>            :     JPP((j_compress_ptr cinfo, JSAMPIMAGE input_buf));
+<span class="lineNum">      64 </span>            : #ifdef FULL_COEF_BUFFER_SUPPORTED
+<span class="lineNum">      65 </span>            : METHODDEF(boolean) compress_first_pass
+<span class="lineNum">      66 </span>            :     JPP((j_compress_ptr cinfo, JSAMPIMAGE input_buf));
+<span class="lineNum">      67 </span>            : METHODDEF(boolean) compress_output
+<span class="lineNum">      68 </span>            :     JPP((j_compress_ptr cinfo, JSAMPIMAGE input_buf));
+<span class="lineNum">      69 </span>            : #endif
+<span class="lineNum">      70 </span>            : 
+<a name="71"><span class="lineNum">      71 </span>            : </a>
+<span class="lineNum">      72 </span>            : LOCAL(void)
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 : start_iMCU_row (j_compress_ptr cinfo)</span>
+<span class="lineNum">      74 </span>            : /* Reset within-iMCU-row counters for a new row */
+<span class="lineNum">      75 </span>            : {
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">      77 </span>            : 
+<span class="lineNum">      78 </span>            :   /* In an interleaved scan, an MCU row is the same as an iMCU row.
+<span class="lineNum">      79 </span>            :    * In a noninterleaved scan, an iMCU row has v_samp_factor MCU rows.
+<span class="lineNum">      80 </span>            :    * But at the bottom of the image, process only what's left.
+<span class="lineNum">      81 </span>            :    */
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;comps_in_scan &gt; 1) {</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :     coef-&gt;MCU_rows_per_iMCU_row = 1;</span>
+<span class="lineNum">      84 </span>            :   } else {
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :     if (coef-&gt;iMCU_row_num &lt; (cinfo-&gt;total_iMCU_rows-1))</span>
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :       coef-&gt;MCU_rows_per_iMCU_row = cinfo-&gt;cur_comp_info[0]-&gt;v_samp_factor;</span>
+<span class="lineNum">      87 </span>            :     else
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :       coef-&gt;MCU_rows_per_iMCU_row = cinfo-&gt;cur_comp_info[0]-&gt;last_row_height;</span>
+<span class="lineNum">      89 </span>            :   }
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :   coef-&gt;mcu_ctr = 0;</span>
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :   coef-&gt;MCU_vert_offset = 0;</span>
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      94 </span>            : 
+<span class="lineNum">      95 </span>            : 
+<span class="lineNum">      96 </span>            : /*
+<span class="lineNum">      97 </span>            :  * Initialize for a processing pass.
+<span class="lineNum">      98 </span>            :  */
+<a name="99"><span class="lineNum">      99 </span>            : </a>
+<span class="lineNum">     100 </span>            : METHODDEF(void)
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 : start_pass_coef (j_compress_ptr cinfo, J_BUF_MODE pass_mode)</span>
+<span class="lineNum">     102 </span>            : {
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">     104 </span>            : 
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :   coef-&gt;iMCU_row_num = 0;</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :   start_iMCU_row(cinfo);</span>
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :   switch (pass_mode) {</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :   case JBUF_PASS_THRU:</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     if (coef-&gt;whole_image[0] != NULL)</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :       ERREXIT(cinfo, JERR_BAD_BUFFER_MODE);</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :     coef-&gt;pub.compress_data = compress_data;</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :     break;</span>
+<span class="lineNum">     114 </span>            : #ifdef FULL_COEF_BUFFER_SUPPORTED
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :   case JBUF_SAVE_AND_PASS:</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     if (coef-&gt;whole_image[0] == NULL)</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :       ERREXIT(cinfo, JERR_BAD_BUFFER_MODE);</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     coef-&gt;pub.compress_data = compress_first_pass;</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :     break;</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :   case JBUF_CRANK_DEST:</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :     if (coef-&gt;whole_image[0] == NULL)</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :       ERREXIT(cinfo, JERR_BAD_BUFFER_MODE);</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :     coef-&gt;pub.compress_data = compress_output;</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :     break;</span>
+<span class="lineNum">     125 </span>            : #endif
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :   default:</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     ERREXIT(cinfo, JERR_BAD_BUFFER_MODE);</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     break;</span>
+<span class="lineNum">     129 </span>            :   }
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span>            : /*
+<span class="lineNum">     134 </span>            :  * Process some data in the single-pass case.
+<span class="lineNum">     135 </span>            :  * We process the equivalent of one fully interleaved MCU row (&quot;iMCU&quot; row)
+<span class="lineNum">     136 </span>            :  * per call, ie, v_samp_factor block rows for each component in the image.
+<span class="lineNum">     137 </span>            :  * Returns TRUE if the iMCU row is completed, FALSE if suspended.
+<span class="lineNum">     138 </span>            :  *
+<span class="lineNum">     139 </span>            :  * NB: input_buf contains a plane for each component in image,
+<span class="lineNum">     140 </span>            :  * which we index according to the component's SOF position.
+<span class="lineNum">     141 </span>            :  */
+<a name="142"><span class="lineNum">     142 </span>            : </a>
+<span class="lineNum">     143 </span>            : METHODDEF(boolean)
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 : compress_data (j_compress_ptr cinfo, JSAMPIMAGE input_buf)</span>
+<span class="lineNum">     145 </span>            : {
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">     147 </span>            :   JDIMENSION MCU_col_num;       /* index of current MCU within row */
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :   JDIMENSION last_MCU_col = cinfo-&gt;MCUs_per_row - 1;</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :   JDIMENSION last_iMCU_row = cinfo-&gt;total_iMCU_rows - 1;</span>
+<span class="lineNum">     150 </span>            :   int blkn, bi, ci, yindex, yoffset, blockcnt;
+<span class="lineNum">     151 </span>            :   JDIMENSION ypos, xpos;
+<span class="lineNum">     152 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     153 </span>            :   forward_DCT_ptr forward_DCT;
+<span class="lineNum">     154 </span>            : 
+<span class="lineNum">     155 </span>            :   /* Loop to write as much as one whole iMCU row */
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :   for (yoffset = coef-&gt;MCU_vert_offset; yoffset &lt; coef-&gt;MCU_rows_per_iMCU_row;</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :        yoffset++) {</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :     for (MCU_col_num = coef-&gt;mcu_ctr; MCU_col_num &lt;= last_MCU_col;</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :          MCU_col_num++) {</span>
+<span class="lineNum">     160 </span>            :       /* Determine where data comes from in input_buf and do the DCT thing.
+<span class="lineNum">     161 </span>            :        * Each call on forward_DCT processes a horizontal row of DCT blocks
+<span class="lineNum">     162 </span>            :        * as wide as an MCU; we rely on having allocated the MCU_buffer[] blocks
+<span class="lineNum">     163 </span>            :        * sequentially.  Dummy blocks at the right or bottom edge are filled in
+<span class="lineNum">     164 </span>            :        * specially.  The data in them does not matter for image reconstruction,
+<span class="lineNum">     165 </span>            :        * so we fill them with values that will encode to the smallest amount of
+<span class="lineNum">     166 </span>            :        * data, viz: all zeroes in the AC entries, DC entries equal to previous
+<span class="lineNum">     167 </span>            :        * block's DC value.  (Thanks to Thomas Kinsman for this idea.)
+<span class="lineNum">     168 </span>            :        */
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :       blkn = 0;</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :       for (ci = 0; ci &lt; cinfo-&gt;comps_in_scan; ci++) {</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :         compptr = cinfo-&gt;cur_comp_info[ci];</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :         forward_DCT = cinfo-&gt;fdct-&gt;forward_DCT[compptr-&gt;component_index];</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :         blockcnt = (MCU_col_num &lt; last_MCU_col) ? compptr-&gt;MCU_width</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :                                                 : compptr-&gt;last_col_width;</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :         xpos = MCU_col_num * compptr-&gt;MCU_sample_width;</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :         ypos = yoffset * compptr-&gt;DCT_v_scaled_size;</span>
+<span class="lineNum">     177 </span>            :         /* ypos == (yoffset+yindex) * DCTSIZE */
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :         for (yindex = 0; yindex &lt; compptr-&gt;MCU_height; yindex++) {</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :           if (coef-&gt;iMCU_row_num &lt; last_iMCU_row ||</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :               yoffset+yindex &lt; compptr-&gt;last_row_height) {</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :             (*forward_DCT) (cinfo, compptr,</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :                             input_buf[compptr-&gt;component_index],</span>
+<span class="lineNum">     183 </span>            :                             coef-&gt;MCU_buffer[blkn],
+<span class="lineNum">     184 </span>            :                             ypos, xpos, (JDIMENSION) blockcnt);
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :             if (blockcnt &lt; compptr-&gt;MCU_width) {</span>
+<span class="lineNum">     186 </span>            :               /* Create some dummy blocks at the right edge of the image. */
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :               FMEMZERO((void FAR *) coef-&gt;MCU_buffer[blkn + blockcnt],</span>
+<span class="lineNum">     188 </span>            :                        (compptr-&gt;MCU_width - blockcnt) * SIZEOF(JBLOCK));
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :               for (bi = blockcnt; bi &lt; compptr-&gt;MCU_width; bi++) {</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :                 coef-&gt;MCU_buffer[blkn+bi][0][0] = coef-&gt;MCU_buffer[blkn+bi-1][0][0];</span>
+<span class="lineNum">     191 </span>            :               }
+<span class="lineNum">     192 </span>            :             }
+<span class="lineNum">     193 </span>            :           } else {
+<span class="lineNum">     194 </span>            :             /* Create a row of dummy blocks at the bottom of the image. */
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :             FMEMZERO((void FAR *) coef-&gt;MCU_buffer[blkn],</span>
+<span class="lineNum">     196 </span>            :                      compptr-&gt;MCU_width * SIZEOF(JBLOCK));
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :             for (bi = 0; bi &lt; compptr-&gt;MCU_width; bi++) {</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :               coef-&gt;MCU_buffer[blkn+bi][0][0] = coef-&gt;MCU_buffer[blkn-1][0][0];</span>
+<span class="lineNum">     199 </span>            :             }
+<span class="lineNum">     200 </span>            :           }
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :           blkn += compptr-&gt;MCU_width;</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :           ypos += compptr-&gt;DCT_v_scaled_size;</span>
+<span class="lineNum">     203 </span>            :         }
+<span class="lineNum">     204 </span>            :       }
+<span class="lineNum">     205 </span>            :       /* Try to write the MCU.  In event of a suspension failure, we will
+<span class="lineNum">     206 </span>            :        * re-DCT the MCU on restart (a bit inefficient, could be fixed...)
+<span class="lineNum">     207 </span>            :        */
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :       if (! (*cinfo-&gt;entropy-&gt;encode_mcu) (cinfo, coef-&gt;MCU_buffer)) {</span>
+<span class="lineNum">     209 </span>            :         /* Suspension forced; update state counters and exit */
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :         coef-&gt;MCU_vert_offset = yoffset;</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :         coef-&gt;mcu_ctr = MCU_col_num;</span>
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     213 </span>            :       }
+<span class="lineNum">     214 </span>            :     }
+<span class="lineNum">     215 </span>            :     /* Completed an MCU row, but perhaps not an iMCU row */
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     coef-&gt;mcu_ctr = 0;</span>
+<span class="lineNum">     217 </span>            :   }
+<span class="lineNum">     218 </span>            :   /* Completed the iMCU row, advance counters for next one */
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :   coef-&gt;iMCU_row_num++;</span>
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :   start_iMCU_row(cinfo);</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :   return TRUE;</span>
+<span class="lineNum">     222 </span>            : }
+<span class="lineNum">     223 </span>            : 
+<span class="lineNum">     224 </span>            : 
+<span class="lineNum">     225 </span>            : #ifdef FULL_COEF_BUFFER_SUPPORTED
+<span class="lineNum">     226 </span>            : 
+<span class="lineNum">     227 </span>            : /*
+<span class="lineNum">     228 </span>            :  * Process some data in the first pass of a multi-pass case.
+<span class="lineNum">     229 </span>            :  * We process the equivalent of one fully interleaved MCU row (&quot;iMCU&quot; row)
+<span class="lineNum">     230 </span>            :  * per call, ie, v_samp_factor block rows for each component in the image.
+<span class="lineNum">     231 </span>            :  * This amount of data is read from the source buffer, DCT'd and quantized,
+<span class="lineNum">     232 </span>            :  * and saved into the virtual arrays.  We also generate suitable dummy blocks
+<span class="lineNum">     233 </span>            :  * as needed at the right and lower edges.  (The dummy blocks are constructed
+<span class="lineNum">     234 </span>            :  * in the virtual arrays, which have been padded appropriately.)  This makes
+<span class="lineNum">     235 </span>            :  * it possible for subsequent passes not to worry about real vs. dummy blocks.
+<span class="lineNum">     236 </span>            :  *
+<span class="lineNum">     237 </span>            :  * We must also emit the data to the entropy encoder.  This is conveniently
+<span class="lineNum">     238 </span>            :  * done by calling compress_output() after we've loaded the current strip
+<span class="lineNum">     239 </span>            :  * of the virtual arrays.
+<span class="lineNum">     240 </span>            :  *
+<span class="lineNum">     241 </span>            :  * NB: input_buf contains a plane for each component in image.  All
+<span class="lineNum">     242 </span>            :  * components are DCT'd and loaded into the virtual arrays in this pass.
+<span class="lineNum">     243 </span>            :  * However, it may be that only a subset of the components are emitted to
+<span class="lineNum">     244 </span>            :  * the entropy encoder during this first pass; be careful about looking
+<span class="lineNum">     245 </span>            :  * at the scan-dependent variables (MCU dimensions, etc).
+<span class="lineNum">     246 </span>            :  */
+<a name="247"><span class="lineNum">     247 </span>            : </a>
+<span class="lineNum">     248 </span>            : METHODDEF(boolean)
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 : compress_first_pass (j_compress_ptr cinfo, JSAMPIMAGE input_buf)</span>
+<span class="lineNum">     250 </span>            : {
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :   JDIMENSION last_iMCU_row = cinfo-&gt;total_iMCU_rows - 1;</span>
+<span class="lineNum">     253 </span>            :   JDIMENSION blocks_across, MCUs_across, MCUindex;
+<span class="lineNum">     254 </span>            :   int bi, ci, h_samp_factor, block_row, block_rows, ndummy;
+<span class="lineNum">     255 </span>            :   JCOEF lastDC;
+<span class="lineNum">     256 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     257 </span>            :   JBLOCKARRAY buffer;
+<span class="lineNum">     258 </span>            :   JBLOCKROW thisblockrow, lastblockrow;
+<span class="lineNum">     259 </span>            :   forward_DCT_ptr forward_DCT;
+<span class="lineNum">     260 </span>            : 
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :   for (ci = 0, compptr = cinfo-&gt;comp_info; ci &lt; cinfo-&gt;num_components;</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :        ci++, compptr++) {</span>
+<span class="lineNum">     263 </span>            :     /* Align the virtual buffer for this component. */
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :     buffer = (*cinfo-&gt;mem-&gt;access_virt_barray)</span>
+<span class="lineNum">     265 </span>            :       ((j_common_ptr) cinfo, coef-&gt;whole_image[ci],
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :        coef-&gt;iMCU_row_num * compptr-&gt;v_samp_factor,</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :        (JDIMENSION) compptr-&gt;v_samp_factor, TRUE);</span>
+<span class="lineNum">     268 </span>            :     /* Count non-dummy DCT block rows in this iMCU row. */
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :     if (coef-&gt;iMCU_row_num &lt; last_iMCU_row)</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :       block_rows = compptr-&gt;v_samp_factor;</span>
+<span class="lineNum">     271 </span>            :     else {
+<span class="lineNum">     272 </span>            :       /* NB: can't use last_row_height here, since may not be set! */
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :       block_rows = (int) (compptr-&gt;height_in_blocks % compptr-&gt;v_samp_factor);</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :       if (block_rows == 0) block_rows = compptr-&gt;v_samp_factor;</span>
+<span class="lineNum">     275 </span>            :     }
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :     blocks_across = compptr-&gt;width_in_blocks;</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :     h_samp_factor = compptr-&gt;h_samp_factor;</span>
+<span class="lineNum">     278 </span>            :     /* Count number of dummy blocks to be added at the right margin. */
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :     ndummy = (int) (blocks_across % h_samp_factor);</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :     if (ndummy &gt; 0)</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :       ndummy = h_samp_factor - ndummy;</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :     forward_DCT = cinfo-&gt;fdct-&gt;forward_DCT[ci];</span>
+<span class="lineNum">     283 </span>            :     /* Perform DCT for all non-dummy blocks in this iMCU row.  Each call
+<span class="lineNum">     284 </span>            :      * on forward_DCT processes a complete horizontal row of DCT blocks.
+<span class="lineNum">     285 </span>            :      */
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :     for (block_row = 0; block_row &lt; block_rows; block_row++) {</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :       thisblockrow = buffer[block_row];</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :       (*forward_DCT) (cinfo, compptr, input_buf[ci], thisblockrow,</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :                       (JDIMENSION) (block_row * compptr-&gt;DCT_v_scaled_size),</span>
+<span class="lineNum">     290 </span>            :                       (JDIMENSION) 0, blocks_across);
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :       if (ndummy &gt; 0) {</span>
+<span class="lineNum">     292 </span>            :         /* Create dummy blocks at the right edge of the image. */
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :         thisblockrow += blocks_across; /* =&gt; first dummy block */</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :         FMEMZERO((void FAR *) thisblockrow, ndummy * SIZEOF(JBLOCK));</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :         lastDC = thisblockrow[-1][0];</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :         for (bi = 0; bi &lt; ndummy; bi++) {</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :           thisblockrow[bi][0] = lastDC;</span>
+<span class="lineNum">     298 </span>            :         }
+<span class="lineNum">     299 </span>            :       }
+<span class="lineNum">     300 </span>            :     }
+<span class="lineNum">     301 </span>            :     /* If at end of image, create dummy block rows as needed.
+<span class="lineNum">     302 </span>            :      * The tricky part here is that within each MCU, we want the DC values
+<span class="lineNum">     303 </span>            :      * of the dummy blocks to match the last real block's DC value.
+<span class="lineNum">     304 </span>            :      * This squeezes a few more bytes out of the resulting file...
+<span class="lineNum">     305 </span>            :      */
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :     if (coef-&gt;iMCU_row_num == last_iMCU_row) {</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :       blocks_across += ndummy;  /* include lower right corner */</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :       MCUs_across = blocks_across / h_samp_factor;</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :       for (block_row = block_rows; block_row &lt; compptr-&gt;v_samp_factor;</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :            block_row++) {</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :         thisblockrow = buffer[block_row];</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :         lastblockrow = buffer[block_row-1];</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :         FMEMZERO((void FAR *) thisblockrow,</span>
+<span class="lineNum">     314 </span>            :                  (size_t) (blocks_across * SIZEOF(JBLOCK)));
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :         for (MCUindex = 0; MCUindex &lt; MCUs_across; MCUindex++) {</span>
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :           lastDC = lastblockrow[h_samp_factor-1][0];</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :           for (bi = 0; bi &lt; h_samp_factor; bi++) {</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :             thisblockrow[bi][0] = lastDC;</span>
+<span class="lineNum">     319 </span>            :           }
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :           thisblockrow += h_samp_factor; /* advance to next MCU in row */</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :           lastblockrow += h_samp_factor;</span>
+<span class="lineNum">     322 </span>            :         }
+<span class="lineNum">     323 </span>            :       }
+<span class="lineNum">     324 </span>            :     }
+<span class="lineNum">     325 </span>            :   }
+<span class="lineNum">     326 </span>            :   /* NB: compress_output will increment iMCU_row_num if successful.
+<span class="lineNum">     327 </span>            :    * A suspension return will result in redoing all the work above next time.
+<span class="lineNum">     328 </span>            :    */
+<span class="lineNum">     329 </span>            : 
+<span class="lineNum">     330 </span>            :   /* Emit data to the entropy encoder, sharing code with subsequent passes */
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :   return compress_output(cinfo, input_buf);</span>
+<span class="lineNum">     332 </span>            : }
+<span class="lineNum">     333 </span>            : 
+<span class="lineNum">     334 </span>            : 
+<span class="lineNum">     335 </span>            : /*
+<span class="lineNum">     336 </span>            :  * Process some data in subsequent passes of a multi-pass case.
+<span class="lineNum">     337 </span>            :  * We process the equivalent of one fully interleaved MCU row (&quot;iMCU&quot; row)
+<span class="lineNum">     338 </span>            :  * per call, ie, v_samp_factor block rows for each component in the scan.
+<span class="lineNum">     339 </span>            :  * The data is obtained from the virtual arrays and fed to the entropy coder.
+<span class="lineNum">     340 </span>            :  * Returns TRUE if the iMCU row is completed, FALSE if suspended.
+<span class="lineNum">     341 </span>            :  *
+<span class="lineNum">     342 </span>            :  * NB: input_buf is ignored; it is likely to be a NULL pointer.
+<span class="lineNum">     343 </span>            :  */
+<a name="344"><span class="lineNum">     344 </span>            : </a>
+<span class="lineNum">     345 </span>            : METHODDEF(boolean)
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 : compress_output (j_compress_ptr cinfo, JSAMPIMAGE input_buf)</span>
+<span class="lineNum">     347 </span>            : {
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">     349 </span>            :   JDIMENSION MCU_col_num;       /* index of current MCU within row */
+<span class="lineNum">     350 </span>            :   int blkn, ci, xindex, yindex, yoffset;
+<span class="lineNum">     351 </span>            :   JDIMENSION start_col;
+<span class="lineNum">     352 </span>            :   JBLOCKARRAY buffer[MAX_COMPS_IN_SCAN];
+<span class="lineNum">     353 </span>            :   JBLOCKROW buffer_ptr;
+<span class="lineNum">     354 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     355 </span>            : 
+<span class="lineNum">     356 </span>            :   /* Align the virtual buffers for the components used in this scan.
+<span class="lineNum">     357 </span>            :    * NB: during first pass, this is safe only because the buffers will
+<span class="lineNum">     358 </span>            :    * already be aligned properly, so jmemmgr.c won't need to do any I/O.
+<span class="lineNum">     359 </span>            :    */
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :   for (ci = 0; ci &lt; cinfo-&gt;comps_in_scan; ci++) {</span>
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :     compptr = cinfo-&gt;cur_comp_info[ci];</span>
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :     buffer[ci] = (*cinfo-&gt;mem-&gt;access_virt_barray)</span>
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :       ((j_common_ptr) cinfo, coef-&gt;whole_image[compptr-&gt;component_index],</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :        coef-&gt;iMCU_row_num * compptr-&gt;v_samp_factor,</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :        (JDIMENSION) compptr-&gt;v_samp_factor, FALSE);</span>
+<span class="lineNum">     366 </span>            :   }
+<span class="lineNum">     367 </span>            : 
+<span class="lineNum">     368 </span>            :   /* Loop to process one whole iMCU row */
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :   for (yoffset = coef-&gt;MCU_vert_offset; yoffset &lt; coef-&gt;MCU_rows_per_iMCU_row;</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :        yoffset++) {</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :     for (MCU_col_num = coef-&gt;mcu_ctr; MCU_col_num &lt; cinfo-&gt;MCUs_per_row;</span>
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :          MCU_col_num++) {</span>
+<span class="lineNum">     373 </span>            :       /* Construct list of pointers to DCT blocks belonging to this MCU */
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :       blkn = 0;                 /* index of current DCT block within MCU */</span>
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :       for (ci = 0; ci &lt; cinfo-&gt;comps_in_scan; ci++) {</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :         compptr = cinfo-&gt;cur_comp_info[ci];</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :         start_col = MCU_col_num * compptr-&gt;MCU_width;</span>
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :         for (yindex = 0; yindex &lt; compptr-&gt;MCU_height; yindex++) {</span>
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :           buffer_ptr = buffer[ci][yindex+yoffset] + start_col;</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :           for (xindex = 0; xindex &lt; compptr-&gt;MCU_width; xindex++) {</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :             coef-&gt;MCU_buffer[blkn++] = buffer_ptr++;</span>
+<span class="lineNum">     382 </span>            :           }
+<span class="lineNum">     383 </span>            :         }
+<span class="lineNum">     384 </span>            :       }
+<span class="lineNum">     385 </span>            :       /* Try to write the MCU. */
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :       if (! (*cinfo-&gt;entropy-&gt;encode_mcu) (cinfo, coef-&gt;MCU_buffer)) {</span>
+<span class="lineNum">     387 </span>            :         /* Suspension forced; update state counters and exit */
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :         coef-&gt;MCU_vert_offset = yoffset;</span>
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 :         coef-&gt;mcu_ctr = MCU_col_num;</span>
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :         return FALSE;</span>
+<span class="lineNum">     391 </span>            :       }
+<span class="lineNum">     392 </span>            :     }
+<span class="lineNum">     393 </span>            :     /* Completed an MCU row, but perhaps not an iMCU row */
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 :     coef-&gt;mcu_ctr = 0;</span>
+<span class="lineNum">     395 </span>            :   }
+<span class="lineNum">     396 </span>            :   /* Completed the iMCU row, advance counters for next one */
+<span class="lineNum">     397 </span><span class="lineNoCov">          0 :   coef-&gt;iMCU_row_num++;</span>
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :   start_iMCU_row(cinfo);</span>
+<span class="lineNum">     399 </span><span class="lineNoCov">          0 :   return TRUE;</span>
+<span class="lineNum">     400 </span>            : }
+<span class="lineNum">     401 </span>            : 
+<span class="lineNum">     402 </span>            : #endif /* FULL_COEF_BUFFER_SUPPORTED */
+<span class="lineNum">     403 </span>            : 
+<span class="lineNum">     404 </span>            : 
+<span class="lineNum">     405 </span>            : /*
+<span class="lineNum">     406 </span>            :  * Initialize coefficient buffer controller.
+<span class="lineNum">     407 </span>            :  */
+<a name="408"><span class="lineNum">     408 </span>            : </a>
+<span class="lineNum">     409 </span>            : GLOBAL(void)
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 : jinit_c_coef_controller (j_compress_ptr cinfo, boolean need_full_buffer)</span>
+<span class="lineNum">     411 </span>            : {
+<span class="lineNum">     412 </span>            :   my_coef_ptr coef;
+<span class="lineNum">     413 </span>            : 
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :   coef = (my_coef_ptr)</span>
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;mem-&gt;alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,</span>
+<span class="lineNum">     416 </span>            :                                 SIZEOF(my_coef_controller));
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :   cinfo-&gt;coef = (struct jpeg_c_coef_controller *) coef;</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :   coef-&gt;pub.start_pass = start_pass_coef;</span>
+<span class="lineNum">     419 </span>            : 
+<span class="lineNum">     420 </span>            :   /* Create the coefficient buffer. */
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :   if (need_full_buffer) {</span>
+<span class="lineNum">     422 </span>            : #ifdef FULL_COEF_BUFFER_SUPPORTED
+<span class="lineNum">     423 </span>            :     /* Allocate a full-image virtual array for each component, */
+<span class="lineNum">     424 </span>            :     /* padded to a multiple of samp_factor DCT blocks in each direction. */
+<span class="lineNum">     425 </span>            :     int ci;
+<span class="lineNum">     426 </span>            :     jpeg_component_info *compptr;
+<span class="lineNum">     427 </span>            : 
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :     for (ci = 0, compptr = cinfo-&gt;comp_info; ci &lt; cinfo-&gt;num_components;</span>
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :          ci++, compptr++) {</span>
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :       coef-&gt;whole_image[ci] = (*cinfo-&gt;mem-&gt;request_virt_barray)</span>
+<span class="lineNum">     431 </span>            :         ((j_common_ptr) cinfo, JPOOL_IMAGE, FALSE,
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :          (JDIMENSION) jround_up((long) compptr-&gt;width_in_blocks,</span>
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :                                 (long) compptr-&gt;h_samp_factor),</span>
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :          (JDIMENSION) jround_up((long) compptr-&gt;height_in_blocks,</span>
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :                                 (long) compptr-&gt;v_samp_factor),</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :          (JDIMENSION) compptr-&gt;v_samp_factor);</span>
+<span class="lineNum">     437 </span>            :     }
+<span class="lineNum">     438 </span>            : #else
+<span class="lineNum">     439 </span>            :     ERREXIT(cinfo, JERR_BAD_BUFFER_MODE);
+<span class="lineNum">     440 </span>            : #endif
+<span class="lineNum">     441 </span>            :   } else {
+<span class="lineNum">     442 </span>            :     /* We only need a single-MCU buffer. */
+<span class="lineNum">     443 </span>            :     JBLOCKROW buffer;
+<span class="lineNum">     444 </span>            :     int i;
+<span class="lineNum">     445 </span>            : 
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :     buffer = (JBLOCKROW)</span>
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :       (*cinfo-&gt;mem-&gt;alloc_large) ((j_common_ptr) cinfo, JPOOL_IMAGE,</span>
+<span class="lineNum">     448 </span>            :                                   C_MAX_BLOCKS_IN_MCU * SIZEOF(JBLOCK));
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; C_MAX_BLOCKS_IN_MCU; i++) {</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :       coef-&gt;MCU_buffer[i] = buffer + i;</span>
+<span class="lineNum">     451 </span>            :     }
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :     coef-&gt;whole_image[0] = NULL; /* flag for no virtual arrays */</span>
+<span class="lineNum">     453 </span>            :   }
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

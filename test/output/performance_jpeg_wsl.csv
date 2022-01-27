@@ -1,0 +1,35 @@
+JPEG compression results
+Timing results and are averaged over 24 test images.
+color_space, quality, compression ratio, space saving ratio, rms error, max error, compression duration (s), decompression duration (s), compression rate (Mb/s), decompression rate (Mb/s), bits saved rate (Mb/s)
+grayscale, 95, 3.744200, 0.732920, 1.411807, 9.208333, 0.147123, 0.070598, 348.557725, 721.935044, 170.996200
+grayscale, 85, 7.693340, 0.870017, 2.146298, 21.458333, 0.103177, 0.053390, 493.956686, 951.080448, 281.408436
+grayscale, 50, 18.035320, 0.944553, 3.075628, 43.666667, 0.076011, 0.041795, 670.099841, 1216.742281, 406.515888
+grayscale, 15, 39.445682, 0.974649, 4.892533, 61.916667, 0.063451, 0.035569, 795.918954, 1421.968254, 496.299482
+grayscale, 5, 63.600545, 0.984277, 8.940766, 97.000000, 0.060370, 0.032323, 841.640710, 1561.710602, 537.662139
+rgb      , 95, 9.876445, 0.898749, 2.518035, 46.166667, 0.221570, 0.104830, 691.550420, 1453.146015, 419.838732
+rgb      , 85, 20.365957, 0.950898, 3.242721, 54.541667, 0.167992, 0.084433, 905.620408, 1799.635143, 571.574949
+rgb      , 50, 47.354417, 0.978883, 4.348119, 72.291667, 0.136494, 0.070642, 1111.567795, 2151.571681, 716.067861
+rgb      , 15, 98.515287, 0.989849, 6.726713, 98.875000, 0.121636, 0.061775, 1243.807528, 2448.424015, 815.890600
+rgb      , 5, 149.604257, 0.993316, 12.743093, 139.125000, 0.115911, 0.058818, 1303.570961, 2570.400298, 859.000881
+
+processor info:
+Architecture:        x86_64
+CPU op-mode(s):      32-bit, 64-bit
+Byte Order:          Little Endian
+Address sizes:       36 bits physical, 48 bits virtual
+CPU(s):              12
+On-line CPU(s) list: 0-11
+Thread(s) per core:  2
+Core(s) per socket:  6
+Socket(s):           1
+Vendor ID:           GenuineIntel
+CPU family:          6
+Model:               165
+Model name:          Intel(R) Core(TM) i7-10750H CPU @ 2.60GHz
+Stepping:            2
+CPU MHz:             2592.000
+CPU max MHz:         2592.0000
+BogoMIPS:            5184.00
+Hypervisor vendor:   Windows Subsystem for Linux
+Virtualization type: container
+Flags:               fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm pni pclmulqdq dtes64 est tm2 ssse3 fma cx16 xtpr pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt aes xsave osxsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid mpx rdseed adx smap clflushopt ibrs ibpb stibp ssbd

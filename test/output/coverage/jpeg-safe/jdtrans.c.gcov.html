@@ -1,0 +1,216 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - jpeg-safe/jdtrans.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">jpeg-safe</a> - jdtrans.c<span style="font-size: 80%;"> (source / <a href="jdtrans.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">43</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2020-11-24 12:24:12</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * jdtrans.c
+<span class="lineNum">       3 </span>            :  *
+<span class="lineNum">       4 </span>            :  * Copyright (C) 1995-1997, Thomas G. Lane.
+<span class="lineNum">       5 </span>            :  * Modified 2000-2009 by Guido Vollbeding.
+<span class="lineNum">       6 </span>            :  * This file is part of the Independent JPEG Group's software.
+<span class="lineNum">       7 </span>            :  * For conditions of distribution and use, see the accompanying README file.
+<span class="lineNum">       8 </span>            :  *
+<span class="lineNum">       9 </span>            :  * This file contains library routines for transcoding decompression,
+<span class="lineNum">      10 </span>            :  * that is, reading raw DCT coefficient arrays from an input JPEG file.
+<span class="lineNum">      11 </span>            :  * The routines in jdapimin.c will also be needed by a transcoder.
+<span class="lineNum">      12 </span>            :  */
+<span class="lineNum">      13 </span>            : 
+<span class="lineNum">      14 </span>            : #define JPEG_INTERNALS
+<span class="lineNum">      15 </span>            : #include &quot;jinclude.h&quot;
+<span class="lineNum">      16 </span>            : #include &quot;jpeglib.h&quot;
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : /* Forward declarations */
+<span class="lineNum">      20 </span>            : LOCAL(void) transdecode_master_selection JPP((j_decompress_ptr cinfo));
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span>            : /*
+<span class="lineNum">      24 </span>            :  * Read the coefficient arrays from a JPEG file.
+<span class="lineNum">      25 </span>            :  * jpeg_read_header must be completed before calling this.
+<span class="lineNum">      26 </span>            :  *
+<span class="lineNum">      27 </span>            :  * The entire image is read into a set of virtual coefficient-block arrays,
+<span class="lineNum">      28 </span>            :  * one per component.  The return value is a pointer to the array of
+<span class="lineNum">      29 </span>            :  * virtual-array descriptors.  These can be manipulated directly via the
+<span class="lineNum">      30 </span>            :  * JPEG memory manager, or handed off to jpeg_write_coefficients().
+<span class="lineNum">      31 </span>            :  * To release the memory occupied by the virtual arrays, call
+<span class="lineNum">      32 </span>            :  * jpeg_finish_decompress() when done with the data.
+<span class="lineNum">      33 </span>            :  *
+<span class="lineNum">      34 </span>            :  * An alternative usage is to simply obtain access to the coefficient arrays
+<span class="lineNum">      35 </span>            :  * during a buffered-image-mode decompression operation.  This is allowed
+<span class="lineNum">      36 </span>            :  * after any jpeg_finish_output() call.  The arrays can be accessed until
+<span class="lineNum">      37 </span>            :  * jpeg_finish_decompress() is called.  (Note that any call to the library
+<span class="lineNum">      38 </span>            :  * may reposition the arrays, so don't rely on access_virt_barray() results
+<span class="lineNum">      39 </span>            :  * to stay valid across library calls.)
+<span class="lineNum">      40 </span>            :  *
+<span class="lineNum">      41 </span>            :  * Returns NULL if suspended.  This case need be checked only if
+<span class="lineNum">      42 </span>            :  * a suspending data source is used.
+<span class="lineNum">      43 </span>            :  */
+<a name="44"><span class="lineNum">      44 </span>            : </a>
+<span class="lineNum">      45 </span>            : GLOBAL(jvirt_barray_ptr *)
+<span class="lineNum">      46 </span><span class="lineNoCov">          0 : jpeg_read_coefficients (j_decompress_ptr cinfo)</span>
+<span class="lineNum">      47 </span>            : {
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;global_state == DSTATE_READY) {</span>
+<span class="lineNum">      49 </span>            :     /* First call: initialize active modules */
+<span class="lineNum">      50 </span><span class="lineNoCov">          0 :     transdecode_master_selection(cinfo);</span>
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 :     cinfo-&gt;global_state = DSTATE_RDCOEFS;</span>
+<span class="lineNum">      52 </span>            :   }
+<span class="lineNum">      53 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;global_state == DSTATE_RDCOEFS) {</span>
+<span class="lineNum">      54 </span>            :     /* Absorb whole file into the coef buffer */
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :     for (;;) {</span>
+<span class="lineNum">      56 </span>            :       int retcode;
+<span class="lineNum">      57 </span>            :       /* Call progress monitor hook if present */
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :       if (cinfo-&gt;progress != NULL)</span>
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :         (*cinfo-&gt;progress-&gt;progress_monitor) ((j_common_ptr) cinfo);</span>
+<span class="lineNum">      60 </span>            :       /* Absorb some more input */
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :       retcode = (*cinfo-&gt;inputctl-&gt;consume_input) (cinfo);</span>
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :       if (retcode == JPEG_SUSPENDED)</span>
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :       if (retcode == JPEG_REACHED_EOI)</span>
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">      66 </span>            :       /* Advance progress counter if appropriate */
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :       if (cinfo-&gt;progress != NULL &amp;&amp;</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :           (retcode == JPEG_ROW_COMPLETED || retcode == JPEG_REACHED_SOS)) {</span>
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :         if (++cinfo-&gt;progress-&gt;pass_counter &gt;= cinfo-&gt;progress-&gt;pass_limit) {</span>
+<span class="lineNum">      70 </span>            :           /* startup underestimated number of scans; ratchet up one scan */
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :           cinfo-&gt;progress-&gt;pass_limit += (long) cinfo-&gt;total_iMCU_rows;</span>
+<span class="lineNum">      72 </span>            :         }
+<span class="lineNum">      73 </span>            :       }
+<span class="lineNum">      74 </span>            :     }
+<span class="lineNum">      75 </span>            :     /* Set state so that jpeg_finish_decompress does the right thing */
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :     cinfo-&gt;global_state = DSTATE_STOPPING;</span>
+<span class="lineNum">      77 </span>            :   }
+<span class="lineNum">      78 </span>            :   /* At this point we should be in state DSTATE_STOPPING if being used
+<span class="lineNum">      79 </span>            :    * standalone, or in state DSTATE_BUFIMAGE if being invoked to get access
+<span class="lineNum">      80 </span>            :    * to the coefficients during a full buffered-image-mode decompression.
+<span class="lineNum">      81 </span>            :    */
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :   if ((cinfo-&gt;global_state == DSTATE_STOPPING ||</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :        cinfo-&gt;global_state == DSTATE_BUFIMAGE) &amp;&amp; cinfo-&gt;buffered_image) {</span>
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :     return cinfo-&gt;coef-&gt;coef_arrays;</span>
+<span class="lineNum">      85 </span>            :   }
+<span class="lineNum">      86 </span>            :   /* Oops, improper usage */
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :   ERREXIT1(cinfo, JERR_BAD_STATE, cinfo-&gt;global_state);</span>
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :   return NULL;                  /* keep compiler happy */</span>
+<span class="lineNum">      89 </span>            : }
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span>            : 
+<span class="lineNum">      92 </span>            : /*
+<span class="lineNum">      93 </span>            :  * Master selection of decompression modules for transcoding.
+<span class="lineNum">      94 </span>            :  * This substitutes for jdmaster.c's initialization of the full decompressor.
+<span class="lineNum">      95 </span>            :  */
+<a name="96"><span class="lineNum">      96 </span>            : </a>
+<span class="lineNum">      97 </span>            : LOCAL(void)
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 : transdecode_master_selection (j_decompress_ptr cinfo)</span>
+<span class="lineNum">      99 </span>            : {
+<span class="lineNum">     100 </span>            :   /* This is effectively a buffered-image operation. */
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :   cinfo-&gt;buffered_image = TRUE;</span>
+<span class="lineNum">     102 </span>            : 
+<span class="lineNum">     103 </span>            :   /* Compute output image dimensions and related values. */
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :   jpeg_core_output_dimensions(cinfo);</span>
+<span class="lineNum">     105 </span>            : 
+<span class="lineNum">     106 </span>            :   /* Entropy decoding: either Huffman or arithmetic coding. */
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;arith_code)</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     jinit_arith_decoder(cinfo);</span>
+<span class="lineNum">     109 </span>            :   else {
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     jinit_huff_decoder(cinfo);</span>
+<span class="lineNum">     111 </span>            :   }
+<span class="lineNum">     112 </span>            : 
+<span class="lineNum">     113 </span>            :   /* Always get a full-image coefficient buffer. */
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :   jinit_d_coef_controller(cinfo, TRUE);</span>
+<span class="lineNum">     115 </span>            : 
+<span class="lineNum">     116 </span>            :   /* We can now tell the memory manager to allocate virtual arrays. */
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;mem-&gt;realize_virt_arrays) ((j_common_ptr) cinfo);</span>
+<span class="lineNum">     118 </span>            : 
+<span class="lineNum">     119 </span>            :   /* Initialize input side of decompressor to consume first scan. */
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;inputctl-&gt;start_input_pass) (cinfo);</span>
+<span class="lineNum">     121 </span>            : 
+<span class="lineNum">     122 </span>            :   /* Initialize progress monitoring. */
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;progress != NULL) {</span>
+<span class="lineNum">     124 </span>            :     int nscans;
+<span class="lineNum">     125 </span>            :     /* Estimate number of scans to set pass_limit. */
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;progressive_mode) {</span>
+<span class="lineNum">     127 </span>            :       /* Arbitrarily estimate 2 interleaved DC scans + 3 AC scans/component. */
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :       nscans = 2 + 3 * cinfo-&gt;num_components;</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :     } else if (cinfo-&gt;inputctl-&gt;has_multiple_scans) {</span>
+<span class="lineNum">     130 </span>            :       /* For a nonprogressive multiscan file, estimate 1 scan per component. */
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :       nscans = cinfo-&gt;num_components;</span>
+<span class="lineNum">     132 </span>            :     } else {
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :       nscans = 1;</span>
+<span class="lineNum">     134 </span>            :     }
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :     cinfo-&gt;progress-&gt;pass_counter = 0L;</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     cinfo-&gt;progress-&gt;pass_limit = (long) cinfo-&gt;total_iMCU_rows * nscans;</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :     cinfo-&gt;progress-&gt;completed_passes = 0;</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :     cinfo-&gt;progress-&gt;total_passes = 1;</span>
+<span class="lineNum">     139 </span>            :   }
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,1387 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - jpeg-safe/jquant2.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">jpeg-safe</a> - jquant2.c<span style="font-size: 80%;"> (source / <a href="jquant2.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">483</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2020-11-24 12:24:12</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">18</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * jquant2.c
+<span class="lineNum">       3 </span>            :  *
+<span class="lineNum">       4 </span>            :  * Copyright (C) 1991-1996, Thomas G. Lane.
+<span class="lineNum">       5 </span>            :  * Modified 2011 by Guido Vollbeding.
+<span class="lineNum">       6 </span>            :  * This file is part of the Independent JPEG Group's software.
+<span class="lineNum">       7 </span>            :  * For conditions of distribution and use, see the accompanying README file.
+<span class="lineNum">       8 </span>            :  *
+<span class="lineNum">       9 </span>            :  * This file contains 2-pass color quantization (color mapping) routines.
+<span class="lineNum">      10 </span>            :  * These routines provide selection of a custom color map for an image,
+<span class="lineNum">      11 </span>            :  * followed by mapping of the image to that color map, with optional
+<span class="lineNum">      12 </span>            :  * Floyd-Steinberg dithering.
+<span class="lineNum">      13 </span>            :  * It is also possible to use just the second pass to map to an arbitrary
+<span class="lineNum">      14 </span>            :  * externally-given color map.
+<span class="lineNum">      15 </span>            :  *
+<span class="lineNum">      16 </span>            :  * Note: ordered dithering is not supported, since there isn't any fast
+<span class="lineNum">      17 </span>            :  * way to compute intercolor distances; it's unclear that ordered dither's
+<span class="lineNum">      18 </span>            :  * fundamental assumptions even hold with an irregularly spaced color map.
+<span class="lineNum">      19 </span>            :  */
+<span class="lineNum">      20 </span>            : 
+<span class="lineNum">      21 </span>            : #define JPEG_INTERNALS
+<span class="lineNum">      22 </span>            : #include &quot;jinclude.h&quot;
+<span class="lineNum">      23 </span>            : #include &quot;jpeglib.h&quot;
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            : #ifdef QUANT_2PASS_SUPPORTED
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            : /*
+<span class="lineNum">      29 </span>            :  * This module implements the well-known Heckbert paradigm for color
+<span class="lineNum">      30 </span>            :  * quantization.  Most of the ideas used here can be traced back to
+<span class="lineNum">      31 </span>            :  * Heckbert's seminal paper
+<span class="lineNum">      32 </span>            :  *   Heckbert, Paul.  &quot;Color Image Quantization for Frame Buffer Display&quot;,
+<span class="lineNum">      33 </span>            :  *   Proc. SIGGRAPH '82, Computer Graphics v.16 #3 (July 1982), pp 297-304.
+<span class="lineNum">      34 </span>            :  *
+<span class="lineNum">      35 </span>            :  * In the first pass over the image, we accumulate a histogram showing the
+<span class="lineNum">      36 </span>            :  * usage count of each possible color.  To keep the histogram to a reasonable
+<span class="lineNum">      37 </span>            :  * size, we reduce the precision of the input; typical practice is to retain
+<span class="lineNum">      38 </span>            :  * 5 or 6 bits per color, so that 8 or 4 different input values are counted
+<span class="lineNum">      39 </span>            :  * in the same histogram cell.
+<span class="lineNum">      40 </span>            :  *
+<span class="lineNum">      41 </span>            :  * Next, the color-selection step begins with a box representing the whole
+<span class="lineNum">      42 </span>            :  * color space, and repeatedly splits the &quot;largest&quot; remaining box until we
+<span class="lineNum">      43 </span>            :  * have as many boxes as desired colors.  Then the mean color in each
+<span class="lineNum">      44 </span>            :  * remaining box becomes one of the possible output colors.
+<span class="lineNum">      45 </span>            :  * 
+<span class="lineNum">      46 </span>            :  * The second pass over the image maps each input pixel to the closest output
+<span class="lineNum">      47 </span>            :  * color (optionally after applying a Floyd-Steinberg dithering correction).
+<span class="lineNum">      48 </span>            :  * This mapping is logically trivial, but making it go fast enough requires
+<span class="lineNum">      49 </span>            :  * considerable care.
+<span class="lineNum">      50 </span>            :  *
+<span class="lineNum">      51 </span>            :  * Heckbert-style quantizers vary a good deal in their policies for choosing
+<span class="lineNum">      52 </span>            :  * the &quot;largest&quot; box and deciding where to cut it.  The particular policies
+<span class="lineNum">      53 </span>            :  * used here have proved out well in experimental comparisons, but better ones
+<span class="lineNum">      54 </span>            :  * may yet be found.
+<span class="lineNum">      55 </span>            :  *
+<span class="lineNum">      56 </span>            :  * In earlier versions of the IJG code, this module quantized in YCbCr color
+<span class="lineNum">      57 </span>            :  * space, processing the raw upsampled data without a color conversion step.
+<span class="lineNum">      58 </span>            :  * This allowed the color conversion math to be done only once per colormap
+<span class="lineNum">      59 </span>            :  * entry, not once per pixel.  However, that optimization precluded other
+<span class="lineNum">      60 </span>            :  * useful optimizations (such as merging color conversion with upsampling)
+<span class="lineNum">      61 </span>            :  * and it also interfered with desired capabilities such as quantizing to an
+<span class="lineNum">      62 </span>            :  * externally-supplied colormap.  We have therefore abandoned that approach.
+<span class="lineNum">      63 </span>            :  * The present code works in the post-conversion color space, typically RGB.
+<span class="lineNum">      64 </span>            :  *
+<span class="lineNum">      65 </span>            :  * To improve the visual quality of the results, we actually work in scaled
+<span class="lineNum">      66 </span>            :  * RGB space, giving G distances more weight than R, and R in turn more than
+<span class="lineNum">      67 </span>            :  * B.  To do everything in integer math, we must use integer scale factors.
+<span class="lineNum">      68 </span>            :  * The 2/3/1 scale factors used here correspond loosely to the relative
+<span class="lineNum">      69 </span>            :  * weights of the colors in the NTSC grayscale equation.
+<span class="lineNum">      70 </span>            :  * If you want to use this code to quantize a non-RGB color space, you'll
+<span class="lineNum">      71 </span>            :  * probably need to change these scale factors.
+<span class="lineNum">      72 </span>            :  */
+<span class="lineNum">      73 </span>            : 
+<span class="lineNum">      74 </span>            : #define R_SCALE 2               /* scale R distances by this much */
+<span class="lineNum">      75 </span>            : #define G_SCALE 3               /* scale G distances by this much */
+<span class="lineNum">      76 </span>            : #define B_SCALE 1               /* and B by this much */
+<span class="lineNum">      77 </span>            : 
+<span class="lineNum">      78 </span>            : /* Relabel R/G/B as components 0/1/2, respecting the RGB ordering defined
+<span class="lineNum">      79 </span>            :  * in jmorecfg.h.  As the code stands, it will do the right thing for R,G,B
+<span class="lineNum">      80 </span>            :  * and B,G,R orders.  If you define some other weird order in jmorecfg.h,
+<span class="lineNum">      81 </span>            :  * you'll get compile errors until you extend this logic.  In that case
+<span class="lineNum">      82 </span>            :  * you'll probably want to tweak the histogram sizes too.
+<span class="lineNum">      83 </span>            :  */
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span>            : #if RGB_RED == 0
+<span class="lineNum">      86 </span>            : #define C0_SCALE R_SCALE
+<span class="lineNum">      87 </span>            : #endif
+<span class="lineNum">      88 </span>            : #if RGB_BLUE == 0
+<span class="lineNum">      89 </span>            : #define C0_SCALE B_SCALE
+<span class="lineNum">      90 </span>            : #endif
+<span class="lineNum">      91 </span>            : #if RGB_GREEN == 1
+<span class="lineNum">      92 </span>            : #define C1_SCALE G_SCALE
+<span class="lineNum">      93 </span>            : #endif
+<span class="lineNum">      94 </span>            : #if RGB_RED == 2
+<span class="lineNum">      95 </span>            : #define C2_SCALE R_SCALE
+<span class="lineNum">      96 </span>            : #endif
+<span class="lineNum">      97 </span>            : #if RGB_BLUE == 2
+<span class="lineNum">      98 </span>            : #define C2_SCALE B_SCALE
+<span class="lineNum">      99 </span>            : #endif
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span>            : 
+<span class="lineNum">     102 </span>            : /*
+<span class="lineNum">     103 </span>            :  * First we have the histogram data structure and routines for creating it.
+<span class="lineNum">     104 </span>            :  *
+<span class="lineNum">     105 </span>            :  * The number of bits of precision can be adjusted by changing these symbols.
+<span class="lineNum">     106 </span>            :  * We recommend keeping 6 bits for G and 5 each for R and B.
+<span class="lineNum">     107 </span>            :  * If you have plenty of memory and cycles, 6 bits all around gives marginally
+<span class="lineNum">     108 </span>            :  * better results; if you are short of memory, 5 bits all around will save
+<span class="lineNum">     109 </span>            :  * some space but degrade the results.
+<span class="lineNum">     110 </span>            :  * To maintain a fully accurate histogram, we'd need to allocate a &quot;long&quot;
+<span class="lineNum">     111 </span>            :  * (preferably unsigned long) for each cell.  In practice this is overkill;
+<span class="lineNum">     112 </span>            :  * we can get by with 16 bits per cell.  Few of the cell counts will overflow,
+<span class="lineNum">     113 </span>            :  * and clamping those that do overflow to the maximum value will give close-
+<span class="lineNum">     114 </span>            :  * enough results.  This reduces the recommended histogram size from 256Kb
+<span class="lineNum">     115 </span>            :  * to 128Kb, which is a useful savings on PC-class machines.
+<span class="lineNum">     116 </span>            :  * (In the second pass the histogram space is re-used for pixel mapping data;
+<span class="lineNum">     117 </span>            :  * in that capacity, each cell must be able to store zero to the number of
+<span class="lineNum">     118 </span>            :  * desired colors.  16 bits/cell is plenty for that too.)
+<span class="lineNum">     119 </span>            :  * Since the JPEG code is intended to run in small memory model on 80x86
+<span class="lineNum">     120 </span>            :  * machines, we can't just allocate the histogram in one chunk.  Instead
+<span class="lineNum">     121 </span>            :  * of a true 3-D array, we use a row of pointers to 2-D arrays.  Each
+<span class="lineNum">     122 </span>            :  * pointer corresponds to a C0 value (typically 2^5 = 32 pointers) and
+<span class="lineNum">     123 </span>            :  * each 2-D array has 2^6*2^5 = 2048 or 2^6*2^6 = 4096 entries.  Note that
+<span class="lineNum">     124 </span>            :  * on 80x86 machines, the pointer row is in near memory but the actual
+<span class="lineNum">     125 </span>            :  * arrays are in far memory (same arrangement as we use for image arrays).
+<span class="lineNum">     126 </span>            :  */
+<span class="lineNum">     127 </span>            : 
+<span class="lineNum">     128 </span>            : #define MAXNUMCOLORS  (MAXJSAMPLE+1) /* maximum size of colormap */
+<span class="lineNum">     129 </span>            : 
+<span class="lineNum">     130 </span>            : /* These will do the right thing for either R,G,B or B,G,R color order,
+<span class="lineNum">     131 </span>            :  * but you may not like the results for other color orders.
+<span class="lineNum">     132 </span>            :  */
+<span class="lineNum">     133 </span>            : #define HIST_C0_BITS  5         /* bits of precision in R/B histogram */
+<span class="lineNum">     134 </span>            : #define HIST_C1_BITS  6         /* bits of precision in G histogram */
+<span class="lineNum">     135 </span>            : #define HIST_C2_BITS  5         /* bits of precision in B/R histogram */
+<span class="lineNum">     136 </span>            : 
+<span class="lineNum">     137 </span>            : /* Number of elements along histogram axes. */
+<span class="lineNum">     138 </span>            : #define HIST_C0_ELEMS  (1&lt;&lt;HIST_C0_BITS)
+<span class="lineNum">     139 </span>            : #define HIST_C1_ELEMS  (1&lt;&lt;HIST_C1_BITS)
+<span class="lineNum">     140 </span>            : #define HIST_C2_ELEMS  (1&lt;&lt;HIST_C2_BITS)
+<span class="lineNum">     141 </span>            : 
+<span class="lineNum">     142 </span>            : /* These are the amounts to shift an input value to get a histogram index. */
+<span class="lineNum">     143 </span>            : #define C0_SHIFT  (BITS_IN_JSAMPLE-HIST_C0_BITS)
+<span class="lineNum">     144 </span>            : #define C1_SHIFT  (BITS_IN_JSAMPLE-HIST_C1_BITS)
+<span class="lineNum">     145 </span>            : #define C2_SHIFT  (BITS_IN_JSAMPLE-HIST_C2_BITS)
+<span class="lineNum">     146 </span>            : 
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span>            : typedef UINT16 histcell;        /* histogram cell; prefer an unsigned type */
+<span class="lineNum">     149 </span>            : 
+<span class="lineNum">     150 </span>            : typedef histcell FAR * histptr; /* for pointers to histogram cells */
+<span class="lineNum">     151 </span>            : 
+<span class="lineNum">     152 </span>            : typedef histcell hist1d[HIST_C2_ELEMS]; /* typedefs for the array */
+<span class="lineNum">     153 </span>            : typedef hist1d FAR * hist2d;    /* type for the 2nd-level pointers */
+<span class="lineNum">     154 </span>            : typedef hist2d * hist3d;        /* type for top-level pointer */
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span>            : /* Declarations for Floyd-Steinberg dithering.
+<span class="lineNum">     158 </span>            :  *
+<span class="lineNum">     159 </span>            :  * Errors are accumulated into the array fserrors[], at a resolution of
+<span class="lineNum">     160 </span>            :  * 1/16th of a pixel count.  The error at a given pixel is propagated
+<span class="lineNum">     161 </span>            :  * to its not-yet-processed neighbors using the standard F-S fractions,
+<span class="lineNum">     162 </span>            :  *              ...     (here)  7/16
+<span class="lineNum">     163 </span>            :  *              3/16    5/16    1/16
+<span class="lineNum">     164 </span>            :  * We work left-to-right on even rows, right-to-left on odd rows.
+<span class="lineNum">     165 </span>            :  *
+<span class="lineNum">     166 </span>            :  * We can get away with a single array (holding one row's worth of errors)
+<span class="lineNum">     167 </span>            :  * by using it to store the current row's errors at pixel columns not yet
+<span class="lineNum">     168 </span>            :  * processed, but the next row's errors at columns already processed.  We
+<span class="lineNum">     169 </span>            :  * need only a few extra variables to hold the errors immediately around the
+<span class="lineNum">     170 </span>            :  * current column.  (If we are lucky, those variables are in registers, but
+<span class="lineNum">     171 </span>            :  * even if not, they're probably cheaper to access than array elements are.)
+<span class="lineNum">     172 </span>            :  *
+<span class="lineNum">     173 </span>            :  * The fserrors[] array has (#columns + 2) entries; the extra entry at
+<span class="lineNum">     174 </span>            :  * each end saves us from special-casing the first and last pixels.
+<span class="lineNum">     175 </span>            :  * Each entry is three values long, one value for each color component.
+<span class="lineNum">     176 </span>            :  *
+<span class="lineNum">     177 </span>            :  * Note: on a wide image, we might not have enough room in a PC's near data
+<span class="lineNum">     178 </span>            :  * segment to hold the error array; so it is allocated with alloc_large.
+<span class="lineNum">     179 </span>            :  */
+<span class="lineNum">     180 </span>            : 
+<span class="lineNum">     181 </span>            : #if BITS_IN_JSAMPLE == 8
+<span class="lineNum">     182 </span>            : typedef INT16 FSERROR;          /* 16 bits should be enough */
+<span class="lineNum">     183 </span>            : typedef int LOCFSERROR;         /* use 'int' for calculation temps */
+<span class="lineNum">     184 </span>            : #else
+<span class="lineNum">     185 </span>            : typedef INT32 FSERROR;          /* may need more than 16 bits */
+<span class="lineNum">     186 </span>            : typedef INT32 LOCFSERROR;       /* be sure calculation temps are big enough */
+<span class="lineNum">     187 </span>            : #endif
+<span class="lineNum">     188 </span>            : 
+<span class="lineNum">     189 </span>            : typedef FSERROR FAR *FSERRPTR;  /* pointer to error array (in FAR storage!) */
+<span class="lineNum">     190 </span>            : 
+<span class="lineNum">     191 </span>            : 
+<span class="lineNum">     192 </span>            : /* Private subobject */
+<span class="lineNum">     193 </span>            : 
+<span class="lineNum">     194 </span>            : typedef struct {
+<span class="lineNum">     195 </span>            :   struct jpeg_color_quantizer pub; /* public fields */
+<span class="lineNum">     196 </span>            : 
+<span class="lineNum">     197 </span>            :   /* Space for the eventually created colormap is stashed here */
+<span class="lineNum">     198 </span>            :   JSAMPARRAY sv_colormap;       /* colormap allocated at init time */
+<span class="lineNum">     199 </span>            :   int desired;                  /* desired # of colors = size of colormap */
+<span class="lineNum">     200 </span>            : 
+<span class="lineNum">     201 </span>            :   /* Variables for accumulating image statistics */
+<span class="lineNum">     202 </span>            :   hist3d histogram;             /* pointer to the histogram */
+<span class="lineNum">     203 </span>            : 
+<span class="lineNum">     204 </span>            :   boolean needs_zeroed;         /* TRUE if next pass must zero histogram */
+<span class="lineNum">     205 </span>            : 
+<span class="lineNum">     206 </span>            :   /* Variables for Floyd-Steinberg dithering */
+<span class="lineNum">     207 </span>            :   FSERRPTR fserrors;            /* accumulated errors */
+<span class="lineNum">     208 </span>            :   boolean on_odd_row;           /* flag to remember which row we are on */
+<span class="lineNum">     209 </span>            :   int * error_limiter;          /* table for clamping the applied error */
+<span class="lineNum">     210 </span>            : } my_cquantizer;
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span>            : typedef my_cquantizer * my_cquantize_ptr;
+<span class="lineNum">     213 </span>            : 
+<span class="lineNum">     214 </span>            : 
+<span class="lineNum">     215 </span>            : /*
+<span class="lineNum">     216 </span>            :  * Prescan some rows of pixels.
+<span class="lineNum">     217 </span>            :  * In this module the prescan simply updates the histogram, which has been
+<span class="lineNum">     218 </span>            :  * initialized to zeroes by start_pass.
+<span class="lineNum">     219 </span>            :  * An output_buf parameter is required by the method signature, but no data
+<span class="lineNum">     220 </span>            :  * is actually output (in fact the buffer controller is probably passing a
+<span class="lineNum">     221 </span>            :  * NULL pointer).
+<span class="lineNum">     222 </span>            :  */
+<a name="223"><span class="lineNum">     223 </span>            : </a>
+<span class="lineNum">     224 </span>            : METHODDEF(void)
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 : prescan_quantize (j_decompress_ptr cinfo, JSAMPARRAY input_buf,</span>
+<span class="lineNum">     226 </span>            :                   JSAMPARRAY output_buf, int num_rows)
+<span class="lineNum">     227 </span>            : {
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :   my_cquantize_ptr cquantize = (my_cquantize_ptr) cinfo-&gt;cquantize;</span>
+<span class="lineNum">     229 </span>            :   register JSAMPROW ptr;
+<span class="lineNum">     230 </span>            :   register histptr histp;
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :   register hist3d histogram = cquantize-&gt;histogram;</span>
+<span class="lineNum">     232 </span>            :   int row;
+<span class="lineNum">     233 </span>            :   JDIMENSION col;
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :   JDIMENSION width = cinfo-&gt;output_width;</span>
+<span class="lineNum">     235 </span>            : 
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :   for (row = 0; row &lt; num_rows; row++) {</span>
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :     ptr = input_buf[row];</span>
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :     for (col = width; col &gt; 0; col--) {</span>
+<span class="lineNum">     239 </span>            :       /* get pixel value and index into the histogram */
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :       histp = &amp; histogram[GETJSAMPLE(ptr[0]) &gt;&gt; C0_SHIFT]</span>
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :                          [GETJSAMPLE(ptr[1]) &gt;&gt; C1_SHIFT]</span>
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :                          [GETJSAMPLE(ptr[2]) &gt;&gt; C2_SHIFT];</span>
+<span class="lineNum">     243 </span>            :       /* increment, check for overflow and undo increment if so. */
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :       if (++(*histp) &lt;= 0)</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :         (*histp)--;</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :       ptr += 3;</span>
+<span class="lineNum">     247 </span>            :     }
+<span class="lineNum">     248 </span>            :   }
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     250 </span>            : 
+<span class="lineNum">     251 </span>            : 
+<span class="lineNum">     252 </span>            : /*
+<span class="lineNum">     253 </span>            :  * Next we have the really interesting routines: selection of a colormap
+<span class="lineNum">     254 </span>            :  * given the completed histogram.
+<span class="lineNum">     255 </span>            :  * These routines work with a list of &quot;boxes&quot;, each representing a rectangular
+<span class="lineNum">     256 </span>            :  * subset of the input color space (to histogram precision).
+<span class="lineNum">     257 </span>            :  */
+<span class="lineNum">     258 </span>            : 
+<span class="lineNum">     259 </span>            : typedef struct {
+<span class="lineNum">     260 </span>            :   /* The bounds of the box (inclusive); expressed as histogram indexes */
+<span class="lineNum">     261 </span>            :   int c0min, c0max;
+<span class="lineNum">     262 </span>            :   int c1min, c1max;
+<span class="lineNum">     263 </span>            :   int c2min, c2max;
+<span class="lineNum">     264 </span>            :   /* The volume (actually 2-norm) of the box */
+<span class="lineNum">     265 </span>            :   INT32 volume;
+<span class="lineNum">     266 </span>            :   /* The number of nonzero histogram cells within this box */
+<span class="lineNum">     267 </span>            :   long colorcount;
+<span class="lineNum">     268 </span>            : } box;
+<span class="lineNum">     269 </span>            : 
+<span class="lineNum">     270 </span>            : typedef box * boxptr;
+<span class="lineNum">     271 </span>            : 
+<a name="272"><span class="lineNum">     272 </span>            : </a>
+<span class="lineNum">     273 </span>            : LOCAL(boxptr)
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 : find_biggest_color_pop (boxptr boxlist, int numboxes)</span>
+<span class="lineNum">     275 </span>            : /* Find the splittable box with the largest color population */
+<span class="lineNum">     276 </span>            : /* Returns NULL if no splittable boxes remain */
+<span class="lineNum">     277 </span>            : {
+<span class="lineNum">     278 </span>            :   register boxptr boxp;
+<span class="lineNum">     279 </span>            :   register int i;
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :   register long maxc = 0;</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :   boxptr which = NULL;</span>
+<span class="lineNum">     282 </span>            :   
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :   for (i = 0, boxp = boxlist; i &lt; numboxes; i++, boxp++) {</span>
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :     if (boxp-&gt;colorcount &gt; maxc &amp;&amp; boxp-&gt;volume &gt; 0) {</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :       which = boxp;</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :       maxc = boxp-&gt;colorcount;</span>
+<span class="lineNum">     287 </span>            :     }
+<span class="lineNum">     288 </span>            :   }
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :   return which;</span>
+<span class="lineNum">     290 </span>            : }
+<span class="lineNum">     291 </span>            : 
+<a name="292"><span class="lineNum">     292 </span>            : </a>
+<span class="lineNum">     293 </span>            : LOCAL(boxptr)
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 : find_biggest_volume (boxptr boxlist, int numboxes)</span>
+<span class="lineNum">     295 </span>            : /* Find the splittable box with the largest (scaled) volume */
+<span class="lineNum">     296 </span>            : /* Returns NULL if no splittable boxes remain */
+<span class="lineNum">     297 </span>            : {
+<span class="lineNum">     298 </span>            :   register boxptr boxp;
+<span class="lineNum">     299 </span>            :   register int i;
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :   register INT32 maxv = 0;</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :   boxptr which = NULL;</span>
+<span class="lineNum">     302 </span>            :   
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :   for (i = 0, boxp = boxlist; i &lt; numboxes; i++, boxp++) {</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :     if (boxp-&gt;volume &gt; maxv) {</span>
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :       which = boxp;</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :       maxv = boxp-&gt;volume;</span>
+<span class="lineNum">     307 </span>            :     }
+<span class="lineNum">     308 </span>            :   }
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :   return which;</span>
+<span class="lineNum">     310 </span>            : }
+<span class="lineNum">     311 </span>            : 
+<a name="312"><span class="lineNum">     312 </span>            : </a>
+<span class="lineNum">     313 </span>            : LOCAL(void)
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 : update_box (j_decompress_ptr cinfo, boxptr boxp)</span>
+<span class="lineNum">     315 </span>            : /* Shrink the min/max bounds of a box to enclose only nonzero elements, */
+<span class="lineNum">     316 </span>            : /* and recompute its volume and population */
+<span class="lineNum">     317 </span>            : {
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :   my_cquantize_ptr cquantize = (my_cquantize_ptr) cinfo-&gt;cquantize;</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :   hist3d histogram = cquantize-&gt;histogram;</span>
+<span class="lineNum">     320 </span>            :   histptr histp;
+<span class="lineNum">     321 </span>            :   int c0,c1,c2;
+<span class="lineNum">     322 </span>            :   int c0min,c0max,c1min,c1max,c2min,c2max;
+<span class="lineNum">     323 </span>            :   INT32 dist0,dist1,dist2;
+<span class="lineNum">     324 </span>            :   long ccount;
+<span class="lineNum">     325 </span>            :   
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :   c0min = boxp-&gt;c0min;  c0max = boxp-&gt;c0max;</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :   c1min = boxp-&gt;c1min;  c1max = boxp-&gt;c1max;</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :   c2min = boxp-&gt;c2min;  c2max = boxp-&gt;c2max;</span>
+<span class="lineNum">     329 </span>            :   
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :   if (c0max &gt; c0min)</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     for (c0 = c0min; c0 &lt;= c0max; c0++)</span>
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :       for (c1 = c1min; c1 &lt;= c1max; c1++) {</span>
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :         histp = &amp; histogram[c0][c1][c2min];</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :         for (c2 = c2min; c2 &lt;= c2max; c2++)</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :           if (*histp++ != 0) {</span>
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :             boxp-&gt;c0min = c0min = c0;</span>
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :             goto have_c0min;</span>
+<span class="lineNum">     338 </span>            :           }
+<span class="lineNum">     339 </span>            :       }
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :  have_c0min:</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :   if (c0max &gt; c0min)</span>
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :     for (c0 = c0max; c0 &gt;= c0min; c0--)</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :       for (c1 = c1min; c1 &lt;= c1max; c1++) {</span>
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :         histp = &amp; histogram[c0][c1][c2min];</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :         for (c2 = c2min; c2 &lt;= c2max; c2++)</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :           if (*histp++ != 0) {</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :             boxp-&gt;c0max = c0max = c0;</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :             goto have_c0max;</span>
+<span class="lineNum">     349 </span>            :           }
+<span class="lineNum">     350 </span>            :       }
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :  have_c0max:</span>
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :   if (c1max &gt; c1min)</span>
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :     for (c1 = c1min; c1 &lt;= c1max; c1++)</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :       for (c0 = c0min; c0 &lt;= c0max; c0++) {</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :         histp = &amp; histogram[c0][c1][c2min];</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :         for (c2 = c2min; c2 &lt;= c2max; c2++)</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :           if (*histp++ != 0) {</span>
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :             boxp-&gt;c1min = c1min = c1;</span>
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :             goto have_c1min;</span>
+<span class="lineNum">     360 </span>            :           }
+<span class="lineNum">     361 </span>            :       }
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :  have_c1min:</span>
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :   if (c1max &gt; c1min)</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :     for (c1 = c1max; c1 &gt;= c1min; c1--)</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :       for (c0 = c0min; c0 &lt;= c0max; c0++) {</span>
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :         histp = &amp; histogram[c0][c1][c2min];</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :         for (c2 = c2min; c2 &lt;= c2max; c2++)</span>
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :           if (*histp++ != 0) {</span>
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :             boxp-&gt;c1max = c1max = c1;</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :             goto have_c1max;</span>
+<span class="lineNum">     371 </span>            :           }
+<span class="lineNum">     372 </span>            :       }
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 :  have_c1max:</span>
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :   if (c2max &gt; c2min)</span>
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :     for (c2 = c2min; c2 &lt;= c2max; c2++)</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :       for (c0 = c0min; c0 &lt;= c0max; c0++) {</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :         histp = &amp; histogram[c0][c1min][c2];</span>
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :         for (c1 = c1min; c1 &lt;= c1max; c1++, histp += HIST_C2_ELEMS)</span>
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :           if (*histp != 0) {</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :             boxp-&gt;c2min = c2min = c2;</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :             goto have_c2min;</span>
+<span class="lineNum">     382 </span>            :           }
+<span class="lineNum">     383 </span>            :       }
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :  have_c2min:</span>
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :   if (c2max &gt; c2min)</span>
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :     for (c2 = c2max; c2 &gt;= c2min; c2--)</span>
+<span class="lineNum">     387 </span><span class="lineNoCov">          0 :       for (c0 = c0min; c0 &lt;= c0max; c0++) {</span>
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :         histp = &amp; histogram[c0][c1min][c2];</span>
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 :         for (c1 = c1min; c1 &lt;= c1max; c1++, histp += HIST_C2_ELEMS)</span>
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :           if (*histp != 0) {</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :             boxp-&gt;c2max = c2max = c2;</span>
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :             goto have_c2max;</span>
+<span class="lineNum">     393 </span>            :           }
+<span class="lineNum">     394 </span>            :       }
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :  have_c2max:</span>
+<span class="lineNum">     396 </span>            : 
+<span class="lineNum">     397 </span>            :   /* Update box volume.
+<span class="lineNum">     398 </span>            :    * We use 2-norm rather than real volume here; this biases the method
+<span class="lineNum">     399 </span>            :    * against making long narrow boxes, and it has the side benefit that
+<span class="lineNum">     400 </span>            :    * a box is splittable iff norm &gt; 0.
+<span class="lineNum">     401 </span>            :    * Since the differences are expressed in histogram-cell units,
+<span class="lineNum">     402 </span>            :    * we have to shift back to JSAMPLE units to get consistent distances;
+<span class="lineNum">     403 </span>            :    * after which, we scale according to the selected distance scale factors.
+<span class="lineNum">     404 </span>            :    */
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :   dist0 = ((c0max - c0min) &lt;&lt; C0_SHIFT) * C0_SCALE;</span>
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :   dist1 = ((c1max - c1min) &lt;&lt; C1_SHIFT) * C1_SCALE;</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :   dist2 = ((c2max - c2min) &lt;&lt; C2_SHIFT) * C2_SCALE;</span>
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :   boxp-&gt;volume = dist0*dist0 + dist1*dist1 + dist2*dist2;</span>
+<span class="lineNum">     409 </span>            :   
+<span class="lineNum">     410 </span>            :   /* Now scan remaining volume of box and compute population */
+<span class="lineNum">     411 </span><span class="lineNoCov">          0 :   ccount = 0;</span>
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :   for (c0 = c0min; c0 &lt;= c0max; c0++)</span>
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :     for (c1 = c1min; c1 &lt;= c1max; c1++) {</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :       histp = &amp; histogram[c0][c1][c2min];</span>
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :       for (c2 = c2min; c2 &lt;= c2max; c2++, histp++)</span>
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :         if (*histp != 0) {</span>
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :           ccount++;</span>
+<span class="lineNum">     418 </span>            :         }
+<span class="lineNum">     419 </span>            :     }
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 :   boxp-&gt;colorcount = ccount;</span>
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     422 </span>            : 
+<a name="423"><span class="lineNum">     423 </span>            : </a>
+<span class="lineNum">     424 </span>            : LOCAL(int)
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 : median_cut (j_decompress_ptr cinfo, boxptr boxlist, int numboxes,</span>
+<span class="lineNum">     426 </span>            :             int desired_colors)
+<span class="lineNum">     427 </span>            : /* Repeatedly select and split the largest box until we have enough boxes */
+<span class="lineNum">     428 </span>            : {
+<span class="lineNum">     429 </span>            :   int n,lb;
+<span class="lineNum">     430 </span>            :   int c0,c1,c2,cmax;
+<span class="lineNum">     431 </span>            :   register boxptr b1,b2;
+<span class="lineNum">     432 </span>            : 
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :   while (numboxes &lt; desired_colors) {</span>
+<span class="lineNum">     434 </span>            :     /* Select box to split.
+<span class="lineNum">     435 </span>            :      * Current algorithm: by population for first half, then by volume.
+<span class="lineNum">     436 </span>            :      */
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :     if (numboxes*2 &lt;= desired_colors) {</span>
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :       b1 = find_biggest_color_pop(boxlist, numboxes);</span>
+<span class="lineNum">     439 </span>            :     } else {
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :       b1 = find_biggest_volume(boxlist, numboxes);</span>
+<span class="lineNum">     441 </span>            :     }
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :     if (b1 == NULL)             /* no splittable boxes left! */</span>
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :     b2 = &amp;boxlist[numboxes];        /* where new box will go */</span>
+<span class="lineNum">     445 </span>            :     /* Copy the color bounds to the new box. */
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :     b2-&gt;c0max = b1-&gt;c0max; b2-&gt;c1max = b1-&gt;c1max; b2-&gt;c2max = b1-&gt;c2max;</span>
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :     b2-&gt;c0min = b1-&gt;c0min; b2-&gt;c1min = b1-&gt;c1min; b2-&gt;c2min = b1-&gt;c2min;</span>
+<span class="lineNum">     448 </span>            :     /* Choose which axis to split the box on.
+<span class="lineNum">     449 </span>            :      * Current algorithm: longest scaled axis.
+<span class="lineNum">     450 </span>            :      * See notes in update_box about scaling distances.
+<span class="lineNum">     451 </span>            :      */
+<span class="lineNum">     452 </span><span class="lineNoCov">          0 :     c0 = ((b1-&gt;c0max - b1-&gt;c0min) &lt;&lt; C0_SHIFT) * C0_SCALE;</span>
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :     c1 = ((b1-&gt;c1max - b1-&gt;c1min) &lt;&lt; C1_SHIFT) * C1_SCALE;</span>
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :     c2 = ((b1-&gt;c2max - b1-&gt;c2min) &lt;&lt; C2_SHIFT) * C2_SCALE;</span>
+<span class="lineNum">     455 </span>            :     /* We want to break any ties in favor of green, then red, blue last.
+<span class="lineNum">     456 </span>            :      * This code does the right thing for R,G,B or B,G,R color orders only.
+<span class="lineNum">     457 </span>            :      */
+<span class="lineNum">     458 </span>            : #if RGB_RED == 0
+<span class="lineNum">     459 </span><span class="lineNoCov">          0 :     cmax = c1; n = 1;</span>
+<span class="lineNum">     460 </span><span class="lineNoCov">          0 :     if (c0 &gt; cmax) { cmax = c0; n = 0; }</span>
+<span class="lineNum">     461 </span><span class="lineNoCov">          0 :     if (c2 &gt; cmax) { n = 2; }</span>
+<span class="lineNum">     462 </span>            : #else
+<span class="lineNum">     463 </span>            :     cmax = c1; n = 1;
+<span class="lineNum">     464 </span>            :     if (c2 &gt; cmax) { cmax = c2; n = 2; }
+<span class="lineNum">     465 </span>            :     if (c0 &gt; cmax) { n = 0; }
+<span class="lineNum">     466 </span>            : #endif
+<span class="lineNum">     467 </span>            :     /* Choose split point along selected axis, and update box bounds.
+<span class="lineNum">     468 </span>            :      * Current algorithm: split at halfway point.
+<span class="lineNum">     469 </span>            :      * (Since the box has been shrunk to minimum volume,
+<span class="lineNum">     470 </span>            :      * any split will produce two nonempty subboxes.)
+<span class="lineNum">     471 </span>            :      * Note that lb value is max for lower box, so must be &lt; old max.
+<span class="lineNum">     472 </span>            :      */
+<span class="lineNum">     473 </span><span class="lineNoCov">          0 :     switch (n) {</span>
+<span class="lineNum">     474 </span><span class="lineNoCov">          0 :     case 0:</span>
+<span class="lineNum">     475 </span><span class="lineNoCov">          0 :       lb = (b1-&gt;c0max + b1-&gt;c0min) / 2;</span>
+<span class="lineNum">     476 </span><span class="lineNoCov">          0 :       b1-&gt;c0max = lb;</span>
+<span class="lineNum">     477 </span><span class="lineNoCov">          0 :       b2-&gt;c0min = lb+1;</span>
+<span class="lineNum">     478 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     479 </span><span class="lineNoCov">          0 :     case 1:</span>
+<span class="lineNum">     480 </span><span class="lineNoCov">          0 :       lb = (b1-&gt;c1max + b1-&gt;c1min) / 2;</span>
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 :       b1-&gt;c1max = lb;</span>
+<span class="lineNum">     482 </span><span class="lineNoCov">          0 :       b2-&gt;c1min = lb+1;</span>
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :     case 2:</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :       lb = (b1-&gt;c2max + b1-&gt;c2min) / 2;</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :       b1-&gt;c2max = lb;</span>
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 :       b2-&gt;c2min = lb+1;</span>
+<span class="lineNum">     488 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     489 </span>            :     }
+<span class="lineNum">     490 </span>            :     /* Update stats for boxes */
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :     update_box(cinfo, b1);</span>
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :     update_box(cinfo, b2);</span>
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 :     numboxes++;</span>
+<span class="lineNum">     494 </span>            :   }
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :   return numboxes;</span>
+<span class="lineNum">     496 </span>            : }
+<span class="lineNum">     497 </span>            : 
+<a name="498"><span class="lineNum">     498 </span>            : </a>
+<span class="lineNum">     499 </span>            : LOCAL(void)
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 : compute_color (j_decompress_ptr cinfo, boxptr boxp, int icolor)</span>
+<span class="lineNum">     501 </span>            : /* Compute representative color for a box, put it in colormap[icolor] */
+<span class="lineNum">     502 </span>            : {
+<span class="lineNum">     503 </span>            :   /* Current algorithm: mean weighted by pixels (not colors) */
+<span class="lineNum">     504 </span>            :   /* Note it is important to get the rounding correct! */
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :   my_cquantize_ptr cquantize = (my_cquantize_ptr) cinfo-&gt;cquantize;</span>
+<span class="lineNum">     506 </span><span class="lineNoCov">          0 :   hist3d histogram = cquantize-&gt;histogram;</span>
+<span class="lineNum">     507 </span>            :   histptr histp;
+<span class="lineNum">     508 </span>            :   int c0,c1,c2;
+<span class="lineNum">     509 </span>            :   int c0min,c0max,c1min,c1max,c2min,c2max;
+<span class="lineNum">     510 </span>            :   long count;
+<span class="lineNum">     511 </span><span class="lineNoCov">          0 :   long total = 0;</span>
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :   long c0total = 0;</span>
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :   long c1total = 0;</span>
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :   long c2total = 0;</span>
+<span class="lineNum">     515 </span>            :   
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :   c0min = boxp-&gt;c0min;  c0max = boxp-&gt;c0max;</span>
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :   c1min = boxp-&gt;c1min;  c1max = boxp-&gt;c1max;</span>
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :   c2min = boxp-&gt;c2min;  c2max = boxp-&gt;c2max;</span>
+<span class="lineNum">     519 </span>            :   
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :   for (c0 = c0min; c0 &lt;= c0max; c0++)</span>
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :     for (c1 = c1min; c1 &lt;= c1max; c1++) {</span>
+<span class="lineNum">     522 </span><span class="lineNoCov">          0 :       histp = &amp; histogram[c0][c1][c2min];</span>
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :       for (c2 = c2min; c2 &lt;= c2max; c2++) {</span>
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :         if ((count = *histp++) != 0) {</span>
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :           total += count;</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :           c0total += ((c0 &lt;&lt; C0_SHIFT) + ((1&lt;&lt;C0_SHIFT)&gt;&gt;1)) * count;</span>
+<span class="lineNum">     527 </span><span class="lineNoCov">          0 :           c1total += ((c1 &lt;&lt; C1_SHIFT) + ((1&lt;&lt;C1_SHIFT)&gt;&gt;1)) * count;</span>
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 :           c2total += ((c2 &lt;&lt; C2_SHIFT) + ((1&lt;&lt;C2_SHIFT)&gt;&gt;1)) * count;</span>
+<span class="lineNum">     529 </span>            :         }
+<span class="lineNum">     530 </span>            :       }
+<span class="lineNum">     531 </span>            :     }
+<span class="lineNum">     532 </span>            :   
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :   cinfo-&gt;colormap[0][icolor] = (JSAMPLE) ((c0total + (total&gt;&gt;1)) / total);</span>
+<span class="lineNum">     534 </span><span class="lineNoCov">          0 :   cinfo-&gt;colormap[1][icolor] = (JSAMPLE) ((c1total + (total&gt;&gt;1)) / total);</span>
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :   cinfo-&gt;colormap[2][icolor] = (JSAMPLE) ((c2total + (total&gt;&gt;1)) / total);</span>
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     537 </span>            : 
+<a name="538"><span class="lineNum">     538 </span>            : </a>
+<span class="lineNum">     539 </span>            : LOCAL(void)
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 : select_colors (j_decompress_ptr cinfo, int desired_colors)</span>
+<span class="lineNum">     541 </span>            : /* Master routine for color selection */
+<span class="lineNum">     542 </span>            : {
+<span class="lineNum">     543 </span>            :   boxptr boxlist;
+<span class="lineNum">     544 </span>            :   int numboxes;
+<span class="lineNum">     545 </span>            :   int i;
+<span class="lineNum">     546 </span>            : 
+<span class="lineNum">     547 </span>            :   /* Allocate workspace for box list */
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :   boxlist = (boxptr) (*cinfo-&gt;mem-&gt;alloc_small)</span>
+<span class="lineNum">     549 </span>            :     ((j_common_ptr) cinfo, JPOOL_IMAGE, desired_colors * SIZEOF(box));
+<span class="lineNum">     550 </span>            :   /* Initialize one box containing whole space */
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :   numboxes = 1;</span>
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :   boxlist[0].c0min = 0;</span>
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 :   boxlist[0].c0max = MAXJSAMPLE &gt;&gt; C0_SHIFT;</span>
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :   boxlist[0].c1min = 0;</span>
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 :   boxlist[0].c1max = MAXJSAMPLE &gt;&gt; C1_SHIFT;</span>
+<span class="lineNum">     556 </span><span class="lineNoCov">          0 :   boxlist[0].c2min = 0;</span>
+<span class="lineNum">     557 </span><span class="lineNoCov">          0 :   boxlist[0].c2max = MAXJSAMPLE &gt;&gt; C2_SHIFT;</span>
+<span class="lineNum">     558 </span>            :   /* Shrink it to actually-used volume and set its statistics */
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :   update_box(cinfo, &amp; boxlist[0]);</span>
+<span class="lineNum">     560 </span>            :   /* Perform median-cut to produce final box list */
+<span class="lineNum">     561 </span><span class="lineNoCov">          0 :   numboxes = median_cut(cinfo, boxlist, numboxes, desired_colors);</span>
+<span class="lineNum">     562 </span>            :   /* Compute the representative color for each box, fill colormap */
+<span class="lineNum">     563 </span><span class="lineNoCov">          0 :   for (i = 0; i &lt; numboxes; i++)</span>
+<span class="lineNum">     564 </span><span class="lineNoCov">          0 :     compute_color(cinfo, &amp; boxlist[i], i);</span>
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 :   cinfo-&gt;actual_number_of_colors = numboxes;</span>
+<span class="lineNum">     566 </span><span class="lineNoCov">          0 :   TRACEMS1(cinfo, 1, JTRC_QUANT_SELECTED, numboxes);</span>
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     568 </span>            : 
+<span class="lineNum">     569 </span>            : 
+<span class="lineNum">     570 </span>            : /*
+<span class="lineNum">     571 </span>            :  * These routines are concerned with the time-critical task of mapping input
+<span class="lineNum">     572 </span>            :  * colors to the nearest color in the selected colormap.
+<span class="lineNum">     573 </span>            :  *
+<span class="lineNum">     574 </span>            :  * We re-use the histogram space as an &quot;inverse color map&quot;, essentially a
+<span class="lineNum">     575 </span>            :  * cache for the results of nearest-color searches.  All colors within a
+<span class="lineNum">     576 </span>            :  * histogram cell will be mapped to the same colormap entry, namely the one
+<span class="lineNum">     577 </span>            :  * closest to the cell's center.  This may not be quite the closest entry to
+<span class="lineNum">     578 </span>            :  * the actual input color, but it's almost as good.  A zero in the cache
+<span class="lineNum">     579 </span>            :  * indicates we haven't found the nearest color for that cell yet; the array
+<span class="lineNum">     580 </span>            :  * is cleared to zeroes before starting the mapping pass.  When we find the
+<span class="lineNum">     581 </span>            :  * nearest color for a cell, its colormap index plus one is recorded in the
+<span class="lineNum">     582 </span>            :  * cache for future use.  The pass2 scanning routines call fill_inverse_cmap
+<span class="lineNum">     583 </span>            :  * when they need to use an unfilled entry in the cache.
+<span class="lineNum">     584 </span>            :  *
+<span class="lineNum">     585 </span>            :  * Our method of efficiently finding nearest colors is based on the &quot;locally
+<span class="lineNum">     586 </span>            :  * sorted search&quot; idea described by Heckbert and on the incremental distance
+<span class="lineNum">     587 </span>            :  * calculation described by Spencer W. Thomas in chapter III.1 of Graphics
+<span class="lineNum">     588 </span>            :  * Gems II (James Arvo, ed.  Academic Press, 1991).  Thomas points out that
+<span class="lineNum">     589 </span>            :  * the distances from a given colormap entry to each cell of the histogram can
+<span class="lineNum">     590 </span>            :  * be computed quickly using an incremental method: the differences between
+<span class="lineNum">     591 </span>            :  * distances to adjacent cells themselves differ by a constant.  This allows a
+<span class="lineNum">     592 </span>            :  * fairly fast implementation of the &quot;brute force&quot; approach of computing the
+<span class="lineNum">     593 </span>            :  * distance from every colormap entry to every histogram cell.  Unfortunately,
+<span class="lineNum">     594 </span>            :  * it needs a work array to hold the best-distance-so-far for each histogram
+<span class="lineNum">     595 </span>            :  * cell (because the inner loop has to be over cells, not colormap entries).
+<span class="lineNum">     596 </span>            :  * The work array elements have to be INT32s, so the work array would need
+<span class="lineNum">     597 </span>            :  * 256Kb at our recommended precision.  This is not feasible in DOS machines.
+<span class="lineNum">     598 </span>            :  *
+<span class="lineNum">     599 </span>            :  * To get around these problems, we apply Thomas' method to compute the
+<span class="lineNum">     600 </span>            :  * nearest colors for only the cells within a small subbox of the histogram.
+<span class="lineNum">     601 </span>            :  * The work array need be only as big as the subbox, so the memory usage
+<span class="lineNum">     602 </span>            :  * problem is solved.  Furthermore, we need not fill subboxes that are never
+<span class="lineNum">     603 </span>            :  * referenced in pass2; many images use only part of the color gamut, so a
+<span class="lineNum">     604 </span>            :  * fair amount of work is saved.  An additional advantage of this
+<span class="lineNum">     605 </span>            :  * approach is that we can apply Heckbert's locality criterion to quickly
+<span class="lineNum">     606 </span>            :  * eliminate colormap entries that are far away from the subbox; typically
+<span class="lineNum">     607 </span>            :  * three-fourths of the colormap entries are rejected by Heckbert's criterion,
+<span class="lineNum">     608 </span>            :  * and we need not compute their distances to individual cells in the subbox.
+<span class="lineNum">     609 </span>            :  * The speed of this approach is heavily influenced by the subbox size: too
+<span class="lineNum">     610 </span>            :  * small means too much overhead, too big loses because Heckbert's criterion
+<span class="lineNum">     611 </span>            :  * can't eliminate as many colormap entries.  Empirically the best subbox
+<span class="lineNum">     612 </span>            :  * size seems to be about 1/512th of the histogram (1/8th in each direction).
+<span class="lineNum">     613 </span>            :  *
+<span class="lineNum">     614 </span>            :  * Thomas' article also describes a refined method which is asymptotically
+<span class="lineNum">     615 </span>            :  * faster than the brute-force method, but it is also far more complex and
+<span class="lineNum">     616 </span>            :  * cannot efficiently be applied to small subboxes.  It is therefore not
+<span class="lineNum">     617 </span>            :  * useful for programs intended to be portable to DOS machines.  On machines
+<span class="lineNum">     618 </span>            :  * with plenty of memory, filling the whole histogram in one shot with Thomas'
+<span class="lineNum">     619 </span>            :  * refined method might be faster than the present code --- but then again,
+<span class="lineNum">     620 </span>            :  * it might not be any faster, and it's certainly more complicated.
+<span class="lineNum">     621 </span>            :  */
+<span class="lineNum">     622 </span>            : 
+<span class="lineNum">     623 </span>            : 
+<span class="lineNum">     624 </span>            : /* log2(histogram cells in update box) for each axis; this can be adjusted */
+<span class="lineNum">     625 </span>            : #define BOX_C0_LOG  (HIST_C0_BITS-3)
+<span class="lineNum">     626 </span>            : #define BOX_C1_LOG  (HIST_C1_BITS-3)
+<span class="lineNum">     627 </span>            : #define BOX_C2_LOG  (HIST_C2_BITS-3)
+<span class="lineNum">     628 </span>            : 
+<span class="lineNum">     629 </span>            : #define BOX_C0_ELEMS  (1&lt;&lt;BOX_C0_LOG) /* # of hist cells in update box */
+<span class="lineNum">     630 </span>            : #define BOX_C1_ELEMS  (1&lt;&lt;BOX_C1_LOG)
+<span class="lineNum">     631 </span>            : #define BOX_C2_ELEMS  (1&lt;&lt;BOX_C2_LOG)
+<span class="lineNum">     632 </span>            : 
+<span class="lineNum">     633 </span>            : #define BOX_C0_SHIFT  (C0_SHIFT + BOX_C0_LOG)
+<span class="lineNum">     634 </span>            : #define BOX_C1_SHIFT  (C1_SHIFT + BOX_C1_LOG)
+<span class="lineNum">     635 </span>            : #define BOX_C2_SHIFT  (C2_SHIFT + BOX_C2_LOG)
+<span class="lineNum">     636 </span>            : 
+<span class="lineNum">     637 </span>            : 
+<span class="lineNum">     638 </span>            : /*
+<span class="lineNum">     639 </span>            :  * The next three routines implement inverse colormap filling.  They could
+<span class="lineNum">     640 </span>            :  * all be folded into one big routine, but splitting them up this way saves
+<span class="lineNum">     641 </span>            :  * some stack space (the mindist[] and bestdist[] arrays need not coexist)
+<span class="lineNum">     642 </span>            :  * and may allow some compilers to produce better code by registerizing more
+<span class="lineNum">     643 </span>            :  * inner-loop variables.
+<span class="lineNum">     644 </span>            :  */
+<a name="645"><span class="lineNum">     645 </span>            : </a>
+<span class="lineNum">     646 </span>            : LOCAL(int)
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 : find_nearby_colors (j_decompress_ptr cinfo, int minc0, int minc1, int minc2,</span>
+<span class="lineNum">     648 </span>            :                     JSAMPLE colorlist[])
+<span class="lineNum">     649 </span>            : /* Locate the colormap entries close enough to an update box to be candidates
+<span class="lineNum">     650 </span>            :  * for the nearest entry to some cell(s) in the update box.  The update box
+<span class="lineNum">     651 </span>            :  * is specified by the center coordinates of its first cell.  The number of
+<span class="lineNum">     652 </span>            :  * candidate colormap entries is returned, and their colormap indexes are
+<span class="lineNum">     653 </span>            :  * placed in colorlist[].
+<span class="lineNum">     654 </span>            :  * This routine uses Heckbert's &quot;locally sorted search&quot; criterion to select
+<span class="lineNum">     655 </span>            :  * the colors that need further consideration.
+<span class="lineNum">     656 </span>            :  */
+<span class="lineNum">     657 </span>            : {
+<span class="lineNum">     658 </span><span class="lineNoCov">          0 :   int numcolors = cinfo-&gt;actual_number_of_colors;</span>
+<span class="lineNum">     659 </span>            :   int maxc0, maxc1, maxc2;
+<span class="lineNum">     660 </span>            :   int centerc0, centerc1, centerc2;
+<span class="lineNum">     661 </span>            :   int i, x, ncolors;
+<span class="lineNum">     662 </span>            :   INT32 minmaxdist, min_dist, max_dist, tdist;
+<span class="lineNum">     663 </span>            :   INT32 mindist[MAXNUMCOLORS];  /* min distance to colormap entry i */
+<span class="lineNum">     664 </span>            : 
+<span class="lineNum">     665 </span>            :   /* Compute true coordinates of update box's upper corner and center.
+<span class="lineNum">     666 </span>            :    * Actually we compute the coordinates of the center of the upper-corner
+<span class="lineNum">     667 </span>            :    * histogram cell, which are the upper bounds of the volume we care about.
+<span class="lineNum">     668 </span>            :    * Note that since &quot;&gt;&gt;&quot; rounds down, the &quot;center&quot; values may be closer to
+<span class="lineNum">     669 </span>            :    * min than to max; hence comparisons to them must be &quot;&lt;=&quot;, not &quot;&lt;&quot;.
+<span class="lineNum">     670 </span>            :    */
+<span class="lineNum">     671 </span><span class="lineNoCov">          0 :   maxc0 = minc0 + ((1 &lt;&lt; BOX_C0_SHIFT) - (1 &lt;&lt; C0_SHIFT));</span>
+<span class="lineNum">     672 </span><span class="lineNoCov">          0 :   centerc0 = (minc0 + maxc0) &gt;&gt; 1;</span>
+<span class="lineNum">     673 </span><span class="lineNoCov">          0 :   maxc1 = minc1 + ((1 &lt;&lt; BOX_C1_SHIFT) - (1 &lt;&lt; C1_SHIFT));</span>
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 :   centerc1 = (minc1 + maxc1) &gt;&gt; 1;</span>
+<span class="lineNum">     675 </span><span class="lineNoCov">          0 :   maxc2 = minc2 + ((1 &lt;&lt; BOX_C2_SHIFT) - (1 &lt;&lt; C2_SHIFT));</span>
+<span class="lineNum">     676 </span><span class="lineNoCov">          0 :   centerc2 = (minc2 + maxc2) &gt;&gt; 1;</span>
+<span class="lineNum">     677 </span>            : 
+<span class="lineNum">     678 </span>            :   /* For each color in colormap, find:
+<span class="lineNum">     679 </span>            :    *  1. its minimum squared-distance to any point in the update box
+<span class="lineNum">     680 </span>            :    *     (zero if color is within update box);
+<span class="lineNum">     681 </span>            :    *  2. its maximum squared-distance to any point in the update box.
+<span class="lineNum">     682 </span>            :    * Both of these can be found by considering only the corners of the box.
+<span class="lineNum">     683 </span>            :    * We save the minimum distance for each color in mindist[];
+<span class="lineNum">     684 </span>            :    * only the smallest maximum distance is of interest.
+<span class="lineNum">     685 </span>            :    */
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :   minmaxdist = 0x7FFFFFFFL;</span>
+<span class="lineNum">     687 </span>            : 
+<span class="lineNum">     688 </span><span class="lineNoCov">          0 :   for (i = 0; i &lt; numcolors; i++) {</span>
+<span class="lineNum">     689 </span>            :     /* We compute the squared-c0-distance term, then add in the other two. */
+<span class="lineNum">     690 </span><span class="lineNoCov">          0 :     x = GETJSAMPLE(cinfo-&gt;colormap[0][i]);</span>
+<span class="lineNum">     691 </span><span class="lineNoCov">          0 :     if (x &lt; minc0) {</span>
+<span class="lineNum">     692 </span><span class="lineNoCov">          0 :       tdist = (x - minc0) * C0_SCALE;</span>
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :       min_dist = tdist*tdist;</span>
+<span class="lineNum">     694 </span><span class="lineNoCov">          0 :       tdist = (x - maxc0) * C0_SCALE;</span>
+<span class="lineNum">     695 </span><span class="lineNoCov">          0 :       max_dist = tdist*tdist;</span>
+<span class="lineNum">     696 </span><span class="lineNoCov">          0 :     } else if (x &gt; maxc0) {</span>
+<span class="lineNum">     697 </span><span class="lineNoCov">          0 :       tdist = (x - maxc0) * C0_SCALE;</span>
+<span class="lineNum">     698 </span><span class="lineNoCov">          0 :       min_dist = tdist*tdist;</span>
+<span class="lineNum">     699 </span><span class="lineNoCov">          0 :       tdist = (x - minc0) * C0_SCALE;</span>
+<span class="lineNum">     700 </span><span class="lineNoCov">          0 :       max_dist = tdist*tdist;</span>
+<span class="lineNum">     701 </span>            :     } else {
+<span class="lineNum">     702 </span>            :       /* within cell range so no contribution to min_dist */
+<span class="lineNum">     703 </span><span class="lineNoCov">          0 :       min_dist = 0;</span>
+<span class="lineNum">     704 </span><span class="lineNoCov">          0 :       if (x &lt;= centerc0) {</span>
+<span class="lineNum">     705 </span><span class="lineNoCov">          0 :         tdist = (x - maxc0) * C0_SCALE;</span>
+<span class="lineNum">     706 </span><span class="lineNoCov">          0 :         max_dist = tdist*tdist;</span>
+<span class="lineNum">     707 </span>            :       } else {
+<span class="lineNum">     708 </span><span class="lineNoCov">          0 :         tdist = (x - minc0) * C0_SCALE;</span>
+<span class="lineNum">     709 </span><span class="lineNoCov">          0 :         max_dist = tdist*tdist;</span>
+<span class="lineNum">     710 </span>            :       }
+<span class="lineNum">     711 </span>            :     }
+<span class="lineNum">     712 </span>            : 
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 :     x = GETJSAMPLE(cinfo-&gt;colormap[1][i]);</span>
+<span class="lineNum">     714 </span><span class="lineNoCov">          0 :     if (x &lt; minc1) {</span>
+<span class="lineNum">     715 </span><span class="lineNoCov">          0 :       tdist = (x - minc1) * C1_SCALE;</span>
+<span class="lineNum">     716 </span><span class="lineNoCov">          0 :       min_dist += tdist*tdist;</span>
+<span class="lineNum">     717 </span><span class="lineNoCov">          0 :       tdist = (x - maxc1) * C1_SCALE;</span>
+<span class="lineNum">     718 </span><span class="lineNoCov">          0 :       max_dist += tdist*tdist;</span>
+<span class="lineNum">     719 </span><span class="lineNoCov">          0 :     } else if (x &gt; maxc1) {</span>
+<span class="lineNum">     720 </span><span class="lineNoCov">          0 :       tdist = (x - maxc1) * C1_SCALE;</span>
+<span class="lineNum">     721 </span><span class="lineNoCov">          0 :       min_dist += tdist*tdist;</span>
+<span class="lineNum">     722 </span><span class="lineNoCov">          0 :       tdist = (x - minc1) * C1_SCALE;</span>
+<span class="lineNum">     723 </span><span class="lineNoCov">          0 :       max_dist += tdist*tdist;</span>
+<span class="lineNum">     724 </span>            :     } else {
+<span class="lineNum">     725 </span>            :       /* within cell range so no contribution to min_dist */
+<span class="lineNum">     726 </span><span class="lineNoCov">          0 :       if (x &lt;= centerc1) {</span>
+<span class="lineNum">     727 </span><span class="lineNoCov">          0 :         tdist = (x - maxc1) * C1_SCALE;</span>
+<span class="lineNum">     728 </span><span class="lineNoCov">          0 :         max_dist += tdist*tdist;</span>
+<span class="lineNum">     729 </span>            :       } else {
+<span class="lineNum">     730 </span><span class="lineNoCov">          0 :         tdist = (x - minc1) * C1_SCALE;</span>
+<span class="lineNum">     731 </span><span class="lineNoCov">          0 :         max_dist += tdist*tdist;</span>
+<span class="lineNum">     732 </span>            :       }
+<span class="lineNum">     733 </span>            :     }
+<span class="lineNum">     734 </span>            : 
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :     x = GETJSAMPLE(cinfo-&gt;colormap[2][i]);</span>
+<span class="lineNum">     736 </span><span class="lineNoCov">          0 :     if (x &lt; minc2) {</span>
+<span class="lineNum">     737 </span><span class="lineNoCov">          0 :       tdist = (x - minc2) * C2_SCALE;</span>
+<span class="lineNum">     738 </span><span class="lineNoCov">          0 :       min_dist += tdist*tdist;</span>
+<span class="lineNum">     739 </span><span class="lineNoCov">          0 :       tdist = (x - maxc2) * C2_SCALE;</span>
+<span class="lineNum">     740 </span><span class="lineNoCov">          0 :       max_dist += tdist*tdist;</span>
+<span class="lineNum">     741 </span><span class="lineNoCov">          0 :     } else if (x &gt; maxc2) {</span>
+<span class="lineNum">     742 </span><span class="lineNoCov">          0 :       tdist = (x - maxc2) * C2_SCALE;</span>
+<span class="lineNum">     743 </span><span class="lineNoCov">          0 :       min_dist += tdist*tdist;</span>
+<span class="lineNum">     744 </span><span class="lineNoCov">          0 :       tdist = (x - minc2) * C2_SCALE;</span>
+<span class="lineNum">     745 </span><span class="lineNoCov">          0 :       max_dist += tdist*tdist;</span>
+<span class="lineNum">     746 </span>            :     } else {
+<span class="lineNum">     747 </span>            :       /* within cell range so no contribution to min_dist */
+<span class="lineNum">     748 </span><span class="lineNoCov">          0 :       if (x &lt;= centerc2) {</span>
+<span class="lineNum">     749 </span><span class="lineNoCov">          0 :         tdist = (x - maxc2) * C2_SCALE;</span>
+<span class="lineNum">     750 </span><span class="lineNoCov">          0 :         max_dist += tdist*tdist;</span>
+<span class="lineNum">     751 </span>            :       } else {
+<span class="lineNum">     752 </span><span class="lineNoCov">          0 :         tdist = (x - minc2) * C2_SCALE;</span>
+<span class="lineNum">     753 </span><span class="lineNoCov">          0 :         max_dist += tdist*tdist;</span>
+<span class="lineNum">     754 </span>            :       }
+<span class="lineNum">     755 </span>            :     }
+<span class="lineNum">     756 </span>            : 
+<span class="lineNum">     757 </span><span class="lineNoCov">          0 :     mindist[i] = min_dist;      /* save away the results */</span>
+<span class="lineNum">     758 </span><span class="lineNoCov">          0 :     if (max_dist &lt; minmaxdist)</span>
+<span class="lineNum">     759 </span><span class="lineNoCov">          0 :       minmaxdist = max_dist;</span>
+<span class="lineNum">     760 </span>            :   }
+<span class="lineNum">     761 </span>            : 
+<span class="lineNum">     762 </span>            :   /* Now we know that no cell in the update box is more than minmaxdist
+<span class="lineNum">     763 </span>            :    * away from some colormap entry.  Therefore, only colors that are
+<span class="lineNum">     764 </span>            :    * within minmaxdist of some part of the box need be considered.
+<span class="lineNum">     765 </span>            :    */
+<span class="lineNum">     766 </span><span class="lineNoCov">          0 :   ncolors = 0;</span>
+<span class="lineNum">     767 </span><span class="lineNoCov">          0 :   for (i = 0; i &lt; numcolors; i++) {</span>
+<span class="lineNum">     768 </span><span class="lineNoCov">          0 :     if (mindist[i] &lt;= minmaxdist)</span>
+<span class="lineNum">     769 </span><span class="lineNoCov">          0 :       colorlist[ncolors++] = (JSAMPLE) i;</span>
+<span class="lineNum">     770 </span>            :   }
+<span class="lineNum">     771 </span><span class="lineNoCov">          0 :   return ncolors;</span>
+<span class="lineNum">     772 </span>            : }
+<span class="lineNum">     773 </span>            : 
+<a name="774"><span class="lineNum">     774 </span>            : </a>
+<span class="lineNum">     775 </span>            : LOCAL(void)
+<span class="lineNum">     776 </span><span class="lineNoCov">          0 : find_best_colors (j_decompress_ptr cinfo, int minc0, int minc1, int minc2,</span>
+<span class="lineNum">     777 </span>            :                   int numcolors, JSAMPLE colorlist[], JSAMPLE bestcolor[])
+<span class="lineNum">     778 </span>            : /* Find the closest colormap entry for each cell in the update box,
+<span class="lineNum">     779 </span>            :  * given the list of candidate colors prepared by find_nearby_colors.
+<span class="lineNum">     780 </span>            :  * Return the indexes of the closest entries in the bestcolor[] array.
+<span class="lineNum">     781 </span>            :  * This routine uses Thomas' incremental distance calculation method to
+<span class="lineNum">     782 </span>            :  * find the distance from a colormap entry to successive cells in the box.
+<span class="lineNum">     783 </span>            :  */
+<span class="lineNum">     784 </span>            : {
+<span class="lineNum">     785 </span>            :   int ic0, ic1, ic2;
+<span class="lineNum">     786 </span>            :   int i, icolor;
+<span class="lineNum">     787 </span>            :   register INT32 * bptr;        /* pointer into bestdist[] array */
+<span class="lineNum">     788 </span>            :   JSAMPLE * cptr;               /* pointer into bestcolor[] array */
+<span class="lineNum">     789 </span>            :   INT32 dist0, dist1;           /* initial distance values */
+<span class="lineNum">     790 </span>            :   register INT32 dist2;         /* current distance in inner loop */
+<span class="lineNum">     791 </span>            :   INT32 xx0, xx1;               /* distance increments */
+<span class="lineNum">     792 </span>            :   register INT32 xx2;
+<span class="lineNum">     793 </span>            :   INT32 inc0, inc1, inc2;       /* initial values for increments */
+<span class="lineNum">     794 </span>            :   /* This array holds the distance to the nearest-so-far color for each cell */
+<span class="lineNum">     795 </span>            :   INT32 bestdist[BOX_C0_ELEMS * BOX_C1_ELEMS * BOX_C2_ELEMS];
+<span class="lineNum">     796 </span>            : 
+<span class="lineNum">     797 </span>            :   /* Initialize best-distance for each cell of the update box */
+<span class="lineNum">     798 </span><span class="lineNoCov">          0 :   bptr = bestdist;</span>
+<span class="lineNum">     799 </span><span class="lineNoCov">          0 :   for (i = BOX_C0_ELEMS*BOX_C1_ELEMS*BOX_C2_ELEMS-1; i &gt;= 0; i--)</span>
+<span class="lineNum">     800 </span><span class="lineNoCov">          0 :     *bptr++ = 0x7FFFFFFFL;</span>
+<span class="lineNum">     801 </span>            :   
+<span class="lineNum">     802 </span>            :   /* For each color selected by find_nearby_colors,
+<span class="lineNum">     803 </span>            :    * compute its distance to the center of each cell in the box.
+<span class="lineNum">     804 </span>            :    * If that's less than best-so-far, update best distance and color number.
+<span class="lineNum">     805 </span>            :    */
+<span class="lineNum">     806 </span>            :   
+<span class="lineNum">     807 </span>            :   /* Nominal steps between cell centers (&quot;x&quot; in Thomas article) */
+<span class="lineNum">     808 </span>            : #define STEP_C0  ((1 &lt;&lt; C0_SHIFT) * C0_SCALE)
+<span class="lineNum">     809 </span>            : #define STEP_C1  ((1 &lt;&lt; C1_SHIFT) * C1_SCALE)
+<span class="lineNum">     810 </span>            : #define STEP_C2  ((1 &lt;&lt; C2_SHIFT) * C2_SCALE)
+<span class="lineNum">     811 </span>            :   
+<span class="lineNum">     812 </span><span class="lineNoCov">          0 :   for (i = 0; i &lt; numcolors; i++) {</span>
+<span class="lineNum">     813 </span><span class="lineNoCov">          0 :     icolor = GETJSAMPLE(colorlist[i]);</span>
+<span class="lineNum">     814 </span>            :     /* Compute (square of) distance from minc0/c1/c2 to this color */
+<span class="lineNum">     815 </span><span class="lineNoCov">          0 :     inc0 = (minc0 - GETJSAMPLE(cinfo-&gt;colormap[0][icolor])) * C0_SCALE;</span>
+<span class="lineNum">     816 </span><span class="lineNoCov">          0 :     dist0 = inc0*inc0;</span>
+<span class="lineNum">     817 </span><span class="lineNoCov">          0 :     inc1 = (minc1 - GETJSAMPLE(cinfo-&gt;colormap[1][icolor])) * C1_SCALE;</span>
+<span class="lineNum">     818 </span><span class="lineNoCov">          0 :     dist0 += inc1*inc1;</span>
+<span class="lineNum">     819 </span><span class="lineNoCov">          0 :     inc2 = (minc2 - GETJSAMPLE(cinfo-&gt;colormap[2][icolor])) * C2_SCALE;</span>
+<span class="lineNum">     820 </span><span class="lineNoCov">          0 :     dist0 += inc2*inc2;</span>
+<span class="lineNum">     821 </span>            :     /* Form the initial difference increments */
+<span class="lineNum">     822 </span><span class="lineNoCov">          0 :     inc0 = inc0 * (2 * STEP_C0) + STEP_C0 * STEP_C0;</span>
+<span class="lineNum">     823 </span><span class="lineNoCov">          0 :     inc1 = inc1 * (2 * STEP_C1) + STEP_C1 * STEP_C1;</span>
+<span class="lineNum">     824 </span><span class="lineNoCov">          0 :     inc2 = inc2 * (2 * STEP_C2) + STEP_C2 * STEP_C2;</span>
+<span class="lineNum">     825 </span>            :     /* Now loop over all cells in box, updating distance per Thomas method */
+<span class="lineNum">     826 </span><span class="lineNoCov">          0 :     bptr = bestdist;</span>
+<span class="lineNum">     827 </span><span class="lineNoCov">          0 :     cptr = bestcolor;</span>
+<span class="lineNum">     828 </span><span class="lineNoCov">          0 :     xx0 = inc0;</span>
+<span class="lineNum">     829 </span><span class="lineNoCov">          0 :     for (ic0 = BOX_C0_ELEMS-1; ic0 &gt;= 0; ic0--) {</span>
+<span class="lineNum">     830 </span><span class="lineNoCov">          0 :       dist1 = dist0;</span>
+<span class="lineNum">     831 </span><span class="lineNoCov">          0 :       xx1 = inc1;</span>
+<span class="lineNum">     832 </span><span class="lineNoCov">          0 :       for (ic1 = BOX_C1_ELEMS-1; ic1 &gt;= 0; ic1--) {</span>
+<span class="lineNum">     833 </span><span class="lineNoCov">          0 :         dist2 = dist1;</span>
+<span class="lineNum">     834 </span><span class="lineNoCov">          0 :         xx2 = inc2;</span>
+<span class="lineNum">     835 </span><span class="lineNoCov">          0 :         for (ic2 = BOX_C2_ELEMS-1; ic2 &gt;= 0; ic2--) {</span>
+<span class="lineNum">     836 </span><span class="lineNoCov">          0 :           if (dist2 &lt; *bptr) {</span>
+<span class="lineNum">     837 </span><span class="lineNoCov">          0 :             *bptr = dist2;</span>
+<span class="lineNum">     838 </span><span class="lineNoCov">          0 :             *cptr = (JSAMPLE) icolor;</span>
+<span class="lineNum">     839 </span>            :           }
+<span class="lineNum">     840 </span><span class="lineNoCov">          0 :           dist2 += xx2;</span>
+<span class="lineNum">     841 </span><span class="lineNoCov">          0 :           xx2 += 2 * STEP_C2 * STEP_C2;</span>
+<span class="lineNum">     842 </span><span class="lineNoCov">          0 :           bptr++;</span>
+<span class="lineNum">     843 </span><span class="lineNoCov">          0 :           cptr++;</span>
+<span class="lineNum">     844 </span>            :         }
+<span class="lineNum">     845 </span><span class="lineNoCov">          0 :         dist1 += xx1;</span>
+<span class="lineNum">     846 </span><span class="lineNoCov">          0 :         xx1 += 2 * STEP_C1 * STEP_C1;</span>
+<span class="lineNum">     847 </span>            :       }
+<span class="lineNum">     848 </span><span class="lineNoCov">          0 :       dist0 += xx0;</span>
+<span class="lineNum">     849 </span><span class="lineNoCov">          0 :       xx0 += 2 * STEP_C0 * STEP_C0;</span>
+<span class="lineNum">     850 </span>            :     }
+<span class="lineNum">     851 </span>            :   }
+<span class="lineNum">     852 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     853 </span>            : 
+<a name="854"><span class="lineNum">     854 </span>            : </a>
+<span class="lineNum">     855 </span>            : LOCAL(void)
+<span class="lineNum">     856 </span><span class="lineNoCov">          0 : fill_inverse_cmap (j_decompress_ptr cinfo, int c0, int c1, int c2)</span>
+<span class="lineNum">     857 </span>            : /* Fill the inverse-colormap entries in the update box that contains */
+<span class="lineNum">     858 </span>            : /* histogram cell c0/c1/c2.  (Only that one cell MUST be filled, but */
+<span class="lineNum">     859 </span>            : /* we can fill as many others as we wish.) */
+<span class="lineNum">     860 </span>            : {
+<span class="lineNum">     861 </span><span class="lineNoCov">          0 :   my_cquantize_ptr cquantize = (my_cquantize_ptr) cinfo-&gt;cquantize;</span>
+<span class="lineNum">     862 </span><span class="lineNoCov">          0 :   hist3d histogram = cquantize-&gt;histogram;</span>
+<span class="lineNum">     863 </span>            :   int minc0, minc1, minc2;      /* lower left corner of update box */
+<span class="lineNum">     864 </span>            :   int ic0, ic1, ic2;
+<span class="lineNum">     865 </span>            :   register JSAMPLE * cptr;      /* pointer into bestcolor[] array */
+<span class="lineNum">     866 </span>            :   register histptr cachep;      /* pointer into main cache array */
+<span class="lineNum">     867 </span>            :   /* This array lists the candidate colormap indexes. */
+<span class="lineNum">     868 </span>            :   JSAMPLE colorlist[MAXNUMCOLORS];
+<span class="lineNum">     869 </span>            :   int numcolors;                /* number of candidate colors */
+<span class="lineNum">     870 </span>            :   /* This array holds the actually closest colormap index for each cell. */
+<span class="lineNum">     871 </span>            :   JSAMPLE bestcolor[BOX_C0_ELEMS * BOX_C1_ELEMS * BOX_C2_ELEMS];
+<span class="lineNum">     872 </span>            : 
+<span class="lineNum">     873 </span>            :   /* Convert cell coordinates to update box ID */
+<span class="lineNum">     874 </span><span class="lineNoCov">          0 :   c0 &gt;&gt;= BOX_C0_LOG;</span>
+<span class="lineNum">     875 </span><span class="lineNoCov">          0 :   c1 &gt;&gt;= BOX_C1_LOG;</span>
+<span class="lineNum">     876 </span><span class="lineNoCov">          0 :   c2 &gt;&gt;= BOX_C2_LOG;</span>
+<span class="lineNum">     877 </span>            : 
+<span class="lineNum">     878 </span>            :   /* Compute true coordinates of update box's origin corner.
+<span class="lineNum">     879 </span>            :    * Actually we compute the coordinates of the center of the corner
+<span class="lineNum">     880 </span>            :    * histogram cell, which are the lower bounds of the volume we care about.
+<span class="lineNum">     881 </span>            :    */
+<span class="lineNum">     882 </span><span class="lineNoCov">          0 :   minc0 = (c0 &lt;&lt; BOX_C0_SHIFT) + ((1 &lt;&lt; C0_SHIFT) &gt;&gt; 1);</span>
+<span class="lineNum">     883 </span><span class="lineNoCov">          0 :   minc1 = (c1 &lt;&lt; BOX_C1_SHIFT) + ((1 &lt;&lt; C1_SHIFT) &gt;&gt; 1);</span>
+<span class="lineNum">     884 </span><span class="lineNoCov">          0 :   minc2 = (c2 &lt;&lt; BOX_C2_SHIFT) + ((1 &lt;&lt; C2_SHIFT) &gt;&gt; 1);</span>
+<span class="lineNum">     885 </span>            :   
+<span class="lineNum">     886 </span>            :   /* Determine which colormap entries are close enough to be candidates
+<span class="lineNum">     887 </span>            :    * for the nearest entry to some cell in the update box.
+<span class="lineNum">     888 </span>            :    */
+<span class="lineNum">     889 </span><span class="lineNoCov">          0 :   numcolors = find_nearby_colors(cinfo, minc0, minc1, minc2, colorlist);</span>
+<span class="lineNum">     890 </span>            : 
+<span class="lineNum">     891 </span>            :   /* Determine the actually nearest colors. */
+<span class="lineNum">     892 </span><span class="lineNoCov">          0 :   find_best_colors(cinfo, minc0, minc1, minc2, numcolors, colorlist,</span>
+<span class="lineNum">     893 </span>            :                    bestcolor);
+<span class="lineNum">     894 </span>            : 
+<span class="lineNum">     895 </span>            :   /* Save the best color numbers (plus 1) in the main cache array */
+<span class="lineNum">     896 </span><span class="lineNoCov">          0 :   c0 &lt;&lt;= BOX_C0_LOG;              /* convert ID back to base cell indexes */</span>
+<span class="lineNum">     897 </span><span class="lineNoCov">          0 :   c1 &lt;&lt;= BOX_C1_LOG;</span>
+<span class="lineNum">     898 </span><span class="lineNoCov">          0 :   c2 &lt;&lt;= BOX_C2_LOG;</span>
+<span class="lineNum">     899 </span><span class="lineNoCov">          0 :   cptr = bestcolor;</span>
+<span class="lineNum">     900 </span><span class="lineNoCov">          0 :   for (ic0 = 0; ic0 &lt; BOX_C0_ELEMS; ic0++) {</span>
+<span class="lineNum">     901 </span><span class="lineNoCov">          0 :     for (ic1 = 0; ic1 &lt; BOX_C1_ELEMS; ic1++) {</span>
+<span class="lineNum">     902 </span><span class="lineNoCov">          0 :       cachep = &amp; histogram[c0+ic0][c1+ic1][c2];</span>
+<span class="lineNum">     903 </span><span class="lineNoCov">          0 :       for (ic2 = 0; ic2 &lt; BOX_C2_ELEMS; ic2++) {</span>
+<span class="lineNum">     904 </span><span class="lineNoCov">          0 :         *cachep++ = (histcell) (GETJSAMPLE(*cptr++) + 1);</span>
+<span class="lineNum">     905 </span>            :       }
+<span class="lineNum">     906 </span>            :     }
+<span class="lineNum">     907 </span>            :   }
+<span class="lineNum">     908 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     909 </span>            : 
+<span class="lineNum">     910 </span>            : 
+<span class="lineNum">     911 </span>            : /*
+<span class="lineNum">     912 </span>            :  * Map some rows of pixels to the output colormapped representation.
+<span class="lineNum">     913 </span>            :  */
+<a name="914"><span class="lineNum">     914 </span>            : </a>
+<span class="lineNum">     915 </span>            : METHODDEF(void)
+<span class="lineNum">     916 </span><span class="lineNoCov">          0 : pass2_no_dither (j_decompress_ptr cinfo,</span>
+<span class="lineNum">     917 </span>            :                  JSAMPARRAY input_buf, JSAMPARRAY output_buf, int num_rows)
+<span class="lineNum">     918 </span>            : /* This version performs no dithering */
+<span class="lineNum">     919 </span>            : {
+<span class="lineNum">     920 </span><span class="lineNoCov">          0 :   my_cquantize_ptr cquantize = (my_cquantize_ptr) cinfo-&gt;cquantize;</span>
+<span class="lineNum">     921 </span><span class="lineNoCov">          0 :   hist3d histogram = cquantize-&gt;histogram;</span>
+<span class="lineNum">     922 </span>            :   register JSAMPROW inptr, outptr;
+<span class="lineNum">     923 </span>            :   register histptr cachep;
+<span class="lineNum">     924 </span>            :   register int c0, c1, c2;
+<span class="lineNum">     925 </span>            :   int row;
+<span class="lineNum">     926 </span>            :   JDIMENSION col;
+<span class="lineNum">     927 </span><span class="lineNoCov">          0 :   JDIMENSION width = cinfo-&gt;output_width;</span>
+<span class="lineNum">     928 </span>            : 
+<span class="lineNum">     929 </span><span class="lineNoCov">          0 :   for (row = 0; row &lt; num_rows; row++) {</span>
+<span class="lineNum">     930 </span><span class="lineNoCov">          0 :     inptr = input_buf[row];</span>
+<span class="lineNum">     931 </span><span class="lineNoCov">          0 :     outptr = output_buf[row];</span>
+<span class="lineNum">     932 </span><span class="lineNoCov">          0 :     for (col = width; col &gt; 0; col--) {</span>
+<span class="lineNum">     933 </span>            :       /* get pixel value and index into the cache */
+<span class="lineNum">     934 </span><span class="lineNoCov">          0 :       c0 = GETJSAMPLE(*inptr++) &gt;&gt; C0_SHIFT;</span>
+<span class="lineNum">     935 </span><span class="lineNoCov">          0 :       c1 = GETJSAMPLE(*inptr++) &gt;&gt; C1_SHIFT;</span>
+<span class="lineNum">     936 </span><span class="lineNoCov">          0 :       c2 = GETJSAMPLE(*inptr++) &gt;&gt; C2_SHIFT;</span>
+<span class="lineNum">     937 </span><span class="lineNoCov">          0 :       cachep = &amp; histogram[c0][c1][c2];</span>
+<span class="lineNum">     938 </span>            :       /* If we have not seen this color before, find nearest colormap entry */
+<span class="lineNum">     939 </span>            :       /* and update the cache */
+<span class="lineNum">     940 </span><span class="lineNoCov">          0 :       if (*cachep == 0)</span>
+<span class="lineNum">     941 </span><span class="lineNoCov">          0 :         fill_inverse_cmap(cinfo, c0,c1,c2);</span>
+<span class="lineNum">     942 </span>            :       /* Now emit the colormap index for this cell */
+<span class="lineNum">     943 </span><span class="lineNoCov">          0 :       *outptr++ = (JSAMPLE) (*cachep - 1);</span>
+<span class="lineNum">     944 </span>            :     }
+<span class="lineNum">     945 </span>            :   }
+<span class="lineNum">     946 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     947 </span>            : 
+<a name="948"><span class="lineNum">     948 </span>            : </a>
+<span class="lineNum">     949 </span>            : METHODDEF(void)
+<span class="lineNum">     950 </span><span class="lineNoCov">          0 : pass2_fs_dither (j_decompress_ptr cinfo,</span>
+<span class="lineNum">     951 </span>            :                  JSAMPARRAY input_buf, JSAMPARRAY output_buf, int num_rows)
+<span class="lineNum">     952 </span>            : /* This version performs Floyd-Steinberg dithering */
+<span class="lineNum">     953 </span>            : {
+<span class="lineNum">     954 </span><span class="lineNoCov">          0 :   my_cquantize_ptr cquantize = (my_cquantize_ptr) cinfo-&gt;cquantize;</span>
+<span class="lineNum">     955 </span><span class="lineNoCov">          0 :   hist3d histogram = cquantize-&gt;histogram;</span>
+<span class="lineNum">     956 </span>            :   register LOCFSERROR cur0, cur1, cur2; /* current error or pixel value */
+<span class="lineNum">     957 </span>            :   LOCFSERROR belowerr0, belowerr1, belowerr2; /* error for pixel below cur */
+<span class="lineNum">     958 </span>            :   LOCFSERROR bpreverr0, bpreverr1, bpreverr2; /* error for below/prev col */
+<span class="lineNum">     959 </span>            :   register FSERRPTR errorptr;   /* =&gt; fserrors[] at column before current */
+<span class="lineNum">     960 </span>            :   JSAMPROW inptr;               /* =&gt; current input pixel */
+<span class="lineNum">     961 </span>            :   JSAMPROW outptr;              /* =&gt; current output pixel */
+<span class="lineNum">     962 </span>            :   histptr cachep;
+<span class="lineNum">     963 </span>            :   int dir;                      /* +1 or -1 depending on direction */
+<span class="lineNum">     964 </span>            :   int dir3;                     /* 3*dir, for advancing inptr &amp; errorptr */
+<span class="lineNum">     965 </span>            :   int row;
+<span class="lineNum">     966 </span>            :   JDIMENSION col;
+<span class="lineNum">     967 </span><span class="lineNoCov">          0 :   JDIMENSION width = cinfo-&gt;output_width;</span>
+<span class="lineNum">     968 </span><span class="lineNoCov">          0 :   JSAMPLE *range_limit = cinfo-&gt;sample_range_limit;</span>
+<span class="lineNum">     969 </span><span class="lineNoCov">          0 :   int *error_limit = cquantize-&gt;error_limiter;</span>
+<span class="lineNum">     970 </span><span class="lineNoCov">          0 :   JSAMPROW colormap0 = cinfo-&gt;colormap[0];</span>
+<span class="lineNum">     971 </span><span class="lineNoCov">          0 :   JSAMPROW colormap1 = cinfo-&gt;colormap[1];</span>
+<span class="lineNum">     972 </span><span class="lineNoCov">          0 :   JSAMPROW colormap2 = cinfo-&gt;colormap[2];</span>
+<span class="lineNum">     973 </span>            :   SHIFT_TEMPS
+<span class="lineNum">     974 </span>            : 
+<span class="lineNum">     975 </span><span class="lineNoCov">          0 :   for (row = 0; row &lt; num_rows; row++) {</span>
+<span class="lineNum">     976 </span><span class="lineNoCov">          0 :     inptr = input_buf[row];</span>
+<span class="lineNum">     977 </span><span class="lineNoCov">          0 :     outptr = output_buf[row];</span>
+<span class="lineNum">     978 </span><span class="lineNoCov">          0 :     if (cquantize-&gt;on_odd_row) {</span>
+<span class="lineNum">     979 </span>            :       /* work right to left in this row */
+<span class="lineNum">     980 </span><span class="lineNoCov">          0 :       inptr += (width-1) * 3;   /* so point to rightmost pixel */</span>
+<span class="lineNum">     981 </span><span class="lineNoCov">          0 :       outptr += width-1;</span>
+<span class="lineNum">     982 </span><span class="lineNoCov">          0 :       dir = -1;</span>
+<span class="lineNum">     983 </span><span class="lineNoCov">          0 :       dir3 = -3;</span>
+<span class="lineNum">     984 </span><span class="lineNoCov">          0 :       errorptr = cquantize-&gt;fserrors + (width+1)*3; /* =&gt; entry after last column */</span>
+<span class="lineNum">     985 </span><span class="lineNoCov">          0 :       cquantize-&gt;on_odd_row = FALSE; /* flip for next time */</span>
+<span class="lineNum">     986 </span>            :     } else {
+<span class="lineNum">     987 </span>            :       /* work left to right in this row */
+<span class="lineNum">     988 </span><span class="lineNoCov">          0 :       dir = 1;</span>
+<span class="lineNum">     989 </span><span class="lineNoCov">          0 :       dir3 = 3;</span>
+<span class="lineNum">     990 </span><span class="lineNoCov">          0 :       errorptr = cquantize-&gt;fserrors; /* =&gt; entry before first real column */</span>
+<span class="lineNum">     991 </span><span class="lineNoCov">          0 :       cquantize-&gt;on_odd_row = TRUE; /* flip for next time */</span>
+<span class="lineNum">     992 </span>            :     }
+<span class="lineNum">     993 </span>            :     /* Preset error values: no error propagated to first pixel from left */
+<span class="lineNum">     994 </span><span class="lineNoCov">          0 :     cur0 = cur1 = cur2 = 0;</span>
+<span class="lineNum">     995 </span>            :     /* and no error propagated to row below yet */
+<span class="lineNum">     996 </span><span class="lineNoCov">          0 :     belowerr0 = belowerr1 = belowerr2 = 0;</span>
+<span class="lineNum">     997 </span><span class="lineNoCov">          0 :     bpreverr0 = bpreverr1 = bpreverr2 = 0;</span>
+<span class="lineNum">     998 </span>            : 
+<span class="lineNum">     999 </span><span class="lineNoCov">          0 :     for (col = width; col &gt; 0; col--) {</span>
+<span class="lineNum">    1000 </span>            :       /* curN holds the error propagated from the previous pixel on the
+<span class="lineNum">    1001 </span>            :        * current line.  Add the error propagated from the previous line
+<span class="lineNum">    1002 </span>            :        * to form the complete error correction term for this pixel, and
+<span class="lineNum">    1003 </span>            :        * round the error term (which is expressed * 16) to an integer.
+<span class="lineNum">    1004 </span>            :        * RIGHT_SHIFT rounds towards minus infinity, so adding 8 is correct
+<span class="lineNum">    1005 </span>            :        * for either sign of the error value.
+<span class="lineNum">    1006 </span>            :        * Note: errorptr points to *previous* column's array entry.
+<span class="lineNum">    1007 </span>            :        */
+<span class="lineNum">    1008 </span><span class="lineNoCov">          0 :       cur0 = RIGHT_SHIFT(cur0 + errorptr[dir3+0] + 8, 4);</span>
+<span class="lineNum">    1009 </span><span class="lineNoCov">          0 :       cur1 = RIGHT_SHIFT(cur1 + errorptr[dir3+1] + 8, 4);</span>
+<span class="lineNum">    1010 </span><span class="lineNoCov">          0 :       cur2 = RIGHT_SHIFT(cur2 + errorptr[dir3+2] + 8, 4);</span>
+<span class="lineNum">    1011 </span>            :       /* Limit the error using transfer function set by init_error_limit.
+<span class="lineNum">    1012 </span>            :        * See comments with init_error_limit for rationale.
+<span class="lineNum">    1013 </span>            :        */
+<span class="lineNum">    1014 </span><span class="lineNoCov">          0 :       cur0 = error_limit[cur0];</span>
+<span class="lineNum">    1015 </span><span class="lineNoCov">          0 :       cur1 = error_limit[cur1];</span>
+<span class="lineNum">    1016 </span><span class="lineNoCov">          0 :       cur2 = error_limit[cur2];</span>
+<span class="lineNum">    1017 </span>            :       /* Form pixel value + error, and range-limit to 0..MAXJSAMPLE.
+<span class="lineNum">    1018 </span>            :        * The maximum error is +- MAXJSAMPLE (or less with error limiting);
+<span class="lineNum">    1019 </span>            :        * this sets the required size of the range_limit array.
+<span class="lineNum">    1020 </span>            :        */
+<span class="lineNum">    1021 </span><span class="lineNoCov">          0 :       cur0 += GETJSAMPLE(inptr[0]);</span>
+<span class="lineNum">    1022 </span><span class="lineNoCov">          0 :       cur1 += GETJSAMPLE(inptr[1]);</span>
+<span class="lineNum">    1023 </span><span class="lineNoCov">          0 :       cur2 += GETJSAMPLE(inptr[2]);</span>
+<span class="lineNum">    1024 </span><span class="lineNoCov">          0 :       cur0 = GETJSAMPLE(range_limit[cur0]);</span>
+<span class="lineNum">    1025 </span><span class="lineNoCov">          0 :       cur1 = GETJSAMPLE(range_limit[cur1]);</span>
+<span class="lineNum">    1026 </span><span class="lineNoCov">          0 :       cur2 = GETJSAMPLE(range_limit[cur2]);</span>
+<span class="lineNum">    1027 </span>            :       /* Index into the cache with adjusted pixel value */
+<span class="lineNum">    1028 </span><span class="lineNoCov">          0 :       cachep = &amp; histogram[cur0&gt;&gt;C0_SHIFT][cur1&gt;&gt;C1_SHIFT][cur2&gt;&gt;C2_SHIFT];</span>
+<span class="lineNum">    1029 </span>            :       /* If we have not seen this color before, find nearest colormap */
+<span class="lineNum">    1030 </span>            :       /* entry and update the cache */
+<span class="lineNum">    1031 </span><span class="lineNoCov">          0 :       if (*cachep == 0)</span>
+<span class="lineNum">    1032 </span><span class="lineNoCov">          0 :         fill_inverse_cmap(cinfo, cur0&gt;&gt;C0_SHIFT,cur1&gt;&gt;C1_SHIFT,cur2&gt;&gt;C2_SHIFT);</span>
+<span class="lineNum">    1033 </span>            :       /* Now emit the colormap index for this cell */
+<span class="lineNum">    1034 </span><span class="lineNoCov">          0 :       { register int pixcode = *cachep - 1;</span>
+<span class="lineNum">    1035 </span><span class="lineNoCov">          0 :         *outptr = (JSAMPLE) pixcode;</span>
+<span class="lineNum">    1036 </span>            :         /* Compute representation error for this pixel */
+<span class="lineNum">    1037 </span><span class="lineNoCov">          0 :         cur0 -= GETJSAMPLE(colormap0[pixcode]);</span>
+<span class="lineNum">    1038 </span><span class="lineNoCov">          0 :         cur1 -= GETJSAMPLE(colormap1[pixcode]);</span>
+<span class="lineNum">    1039 </span><span class="lineNoCov">          0 :         cur2 -= GETJSAMPLE(colormap2[pixcode]);</span>
+<span class="lineNum">    1040 </span>            :       }
+<span class="lineNum">    1041 </span>            :       /* Compute error fractions to be propagated to adjacent pixels.
+<span class="lineNum">    1042 </span>            :        * Add these into the running sums, and simultaneously shift the
+<span class="lineNum">    1043 </span>            :        * next-line error sums left by 1 column.
+<span class="lineNum">    1044 </span>            :        */
+<span class="lineNum">    1045 </span>            :       { register LOCFSERROR bnexterr, delta;
+<span class="lineNum">    1046 </span>            : 
+<span class="lineNum">    1047 </span><span class="lineNoCov">          0 :         bnexterr = cur0;        /* Process component 0 */</span>
+<span class="lineNum">    1048 </span><span class="lineNoCov">          0 :         delta = cur0 * 2;</span>
+<span class="lineNum">    1049 </span><span class="lineNoCov">          0 :         cur0 += delta;          /* form error * 3 */</span>
+<span class="lineNum">    1050 </span><span class="lineNoCov">          0 :         errorptr[0] = (FSERROR) (bpreverr0 + cur0);</span>
+<span class="lineNum">    1051 </span><span class="lineNoCov">          0 :         cur0 += delta;          /* form error * 5 */</span>
+<span class="lineNum">    1052 </span><span class="lineNoCov">          0 :         bpreverr0 = belowerr0 + cur0;</span>
+<span class="lineNum">    1053 </span><span class="lineNoCov">          0 :         belowerr0 = bnexterr;</span>
+<span class="lineNum">    1054 </span><span class="lineNoCov">          0 :         cur0 += delta;          /* form error * 7 */</span>
+<span class="lineNum">    1055 </span><span class="lineNoCov">          0 :         bnexterr = cur1;        /* Process component 1 */</span>
+<span class="lineNum">    1056 </span><span class="lineNoCov">          0 :         delta = cur1 * 2;</span>
+<span class="lineNum">    1057 </span><span class="lineNoCov">          0 :         cur1 += delta;          /* form error * 3 */</span>
+<span class="lineNum">    1058 </span><span class="lineNoCov">          0 :         errorptr[1] = (FSERROR) (bpreverr1 + cur1);</span>
+<span class="lineNum">    1059 </span><span class="lineNoCov">          0 :         cur1 += delta;          /* form error * 5 */</span>
+<span class="lineNum">    1060 </span><span class="lineNoCov">          0 :         bpreverr1 = belowerr1 + cur1;</span>
+<span class="lineNum">    1061 </span><span class="lineNoCov">          0 :         belowerr1 = bnexterr;</span>
+<span class="lineNum">    1062 </span><span class="lineNoCov">          0 :         cur1 += delta;          /* form error * 7 */</span>
+<span class="lineNum">    1063 </span><span class="lineNoCov">          0 :         bnexterr = cur2;        /* Process component 2 */</span>
+<span class="lineNum">    1064 </span><span class="lineNoCov">          0 :         delta = cur2 * 2;</span>
+<span class="lineNum">    1065 </span><span class="lineNoCov">          0 :         cur2 += delta;          /* form error * 3 */</span>
+<span class="lineNum">    1066 </span><span class="lineNoCov">          0 :         errorptr[2] = (FSERROR) (bpreverr2 + cur2);</span>
+<span class="lineNum">    1067 </span><span class="lineNoCov">          0 :         cur2 += delta;          /* form error * 5 */</span>
+<span class="lineNum">    1068 </span><span class="lineNoCov">          0 :         bpreverr2 = belowerr2 + cur2;</span>
+<span class="lineNum">    1069 </span><span class="lineNoCov">          0 :         belowerr2 = bnexterr;</span>
+<span class="lineNum">    1070 </span><span class="lineNoCov">          0 :         cur2 += delta;          /* form error * 7 */</span>
+<span class="lineNum">    1071 </span>            :       }
+<span class="lineNum">    1072 </span>            :       /* At this point curN contains the 7/16 error value to be propagated
+<span class="lineNum">    1073 </span>            :        * to the next pixel on the current line, and all the errors for the
+<span class="lineNum">    1074 </span>            :        * next line have been shifted over.  We are therefore ready to move on.
+<span class="lineNum">    1075 </span>            :        */
+<span class="lineNum">    1076 </span><span class="lineNoCov">          0 :       inptr += dir3;            /* Advance pixel pointers to next column */</span>
+<span class="lineNum">    1077 </span><span class="lineNoCov">          0 :       outptr += dir;</span>
+<span class="lineNum">    1078 </span><span class="lineNoCov">          0 :       errorptr += dir3;         /* advance errorptr to current column */</span>
+<span class="lineNum">    1079 </span>            :     }
+<span class="lineNum">    1080 </span>            :     /* Post-loop cleanup: we must unload the final error values into the
+<span class="lineNum">    1081 </span>            :      * final fserrors[] entry.  Note we need not unload belowerrN because
+<span class="lineNum">    1082 </span>            :      * it is for the dummy column before or after the actual array.
+<span class="lineNum">    1083 </span>            :      */
+<span class="lineNum">    1084 </span><span class="lineNoCov">          0 :     errorptr[0] = (FSERROR) bpreverr0; /* unload prev errs into array */</span>
+<span class="lineNum">    1085 </span><span class="lineNoCov">          0 :     errorptr[1] = (FSERROR) bpreverr1;</span>
+<span class="lineNum">    1086 </span><span class="lineNoCov">          0 :     errorptr[2] = (FSERROR) bpreverr2;</span>
+<span class="lineNum">    1087 </span>            :   }
+<span class="lineNum">    1088 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1089 </span>            : 
+<span class="lineNum">    1090 </span>            : 
+<span class="lineNum">    1091 </span>            : /*
+<span class="lineNum">    1092 </span>            :  * Initialize the error-limiting transfer function (lookup table).
+<span class="lineNum">    1093 </span>            :  * The raw F-S error computation can potentially compute error values of up to
+<span class="lineNum">    1094 </span>            :  * +- MAXJSAMPLE.  But we want the maximum correction applied to a pixel to be
+<span class="lineNum">    1095 </span>            :  * much less, otherwise obviously wrong pixels will be created.  (Typical
+<span class="lineNum">    1096 </span>            :  * effects include weird fringes at color-area boundaries, isolated bright
+<span class="lineNum">    1097 </span>            :  * pixels in a dark area, etc.)  The standard advice for avoiding this problem
+<span class="lineNum">    1098 </span>            :  * is to ensure that the &quot;corners&quot; of the color cube are allocated as output
+<span class="lineNum">    1099 </span>            :  * colors; then repeated errors in the same direction cannot cause cascading
+<span class="lineNum">    1100 </span>            :  * error buildup.  However, that only prevents the error from getting
+<span class="lineNum">    1101 </span>            :  * completely out of hand; Aaron Giles reports that error limiting improves
+<span class="lineNum">    1102 </span>            :  * the results even with corner colors allocated.
+<span class="lineNum">    1103 </span>            :  * A simple clamping of the error values to about +- MAXJSAMPLE/8 works pretty
+<span class="lineNum">    1104 </span>            :  * well, but the smoother transfer function used below is even better.  Thanks
+<span class="lineNum">    1105 </span>            :  * to Aaron Giles for this idea.
+<span class="lineNum">    1106 </span>            :  */
+<a name="1107"><span class="lineNum">    1107 </span>            : </a>
+<span class="lineNum">    1108 </span>            : LOCAL(void)
+<span class="lineNum">    1109 </span><span class="lineNoCov">          0 : init_error_limit (j_decompress_ptr cinfo)</span>
+<span class="lineNum">    1110 </span>            : /* Allocate and fill in the error_limiter table */
+<span class="lineNum">    1111 </span>            : {
+<span class="lineNum">    1112 </span><span class="lineNoCov">          0 :   my_cquantize_ptr cquantize = (my_cquantize_ptr) cinfo-&gt;cquantize;</span>
+<span class="lineNum">    1113 </span>            :   int * table;
+<span class="lineNum">    1114 </span>            :   int in, out;
+<span class="lineNum">    1115 </span>            : 
+<span class="lineNum">    1116 </span><span class="lineNoCov">          0 :   table = (int *) (*cinfo-&gt;mem-&gt;alloc_small)</span>
+<span class="lineNum">    1117 </span>            :     ((j_common_ptr) cinfo, JPOOL_IMAGE, (MAXJSAMPLE*2+1) * SIZEOF(int));
+<span class="lineNum">    1118 </span><span class="lineNoCov">          0 :   table += MAXJSAMPLE;          /* so can index -MAXJSAMPLE .. +MAXJSAMPLE */</span>
+<span class="lineNum">    1119 </span><span class="lineNoCov">          0 :   cquantize-&gt;error_limiter = table;</span>
+<span class="lineNum">    1120 </span>            : 
+<span class="lineNum">    1121 </span>            : #define STEPSIZE ((MAXJSAMPLE+1)/16)
+<span class="lineNum">    1122 </span>            :   /* Map errors 1:1 up to +- MAXJSAMPLE/16 */
+<span class="lineNum">    1123 </span><span class="lineNoCov">          0 :   out = 0;</span>
+<span class="lineNum">    1124 </span><span class="lineNoCov">          0 :   for (in = 0; in &lt; STEPSIZE; in++, out++) {</span>
+<span class="lineNum">    1125 </span><span class="lineNoCov">          0 :     table[in] = out; table[-in] = -out;</span>
+<span class="lineNum">    1126 </span>            :   }
+<span class="lineNum">    1127 </span>            :   /* Map errors 1:2 up to +- 3*MAXJSAMPLE/16 */
+<span class="lineNum">    1128 </span><span class="lineNoCov">          0 :   for (; in &lt; STEPSIZE*3; in++, out += (in&amp;1) ? 0 : 1) {</span>
+<span class="lineNum">    1129 </span><span class="lineNoCov">          0 :     table[in] = out; table[-in] = -out;</span>
+<span class="lineNum">    1130 </span>            :   }
+<span class="lineNum">    1131 </span>            :   /* Clamp the rest to final out value (which is (MAXJSAMPLE+1)/8) */
+<span class="lineNum">    1132 </span><span class="lineNoCov">          0 :   for (; in &lt;= MAXJSAMPLE; in++) {</span>
+<span class="lineNum">    1133 </span><span class="lineNoCov">          0 :     table[in] = out; table[-in] = -out;</span>
+<span class="lineNum">    1134 </span>            :   }
+<span class="lineNum">    1135 </span>            : #undef STEPSIZE
+<span class="lineNum">    1136 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1137 </span>            : 
+<span class="lineNum">    1138 </span>            : 
+<span class="lineNum">    1139 </span>            : /*
+<span class="lineNum">    1140 </span>            :  * Finish up at the end of each pass.
+<span class="lineNum">    1141 </span>            :  */
+<a name="1142"><span class="lineNum">    1142 </span>            : </a>
+<span class="lineNum">    1143 </span>            : METHODDEF(void)
+<span class="lineNum">    1144 </span><span class="lineNoCov">          0 : finish_pass1 (j_decompress_ptr cinfo)</span>
+<span class="lineNum">    1145 </span>            : {
+<span class="lineNum">    1146 </span><span class="lineNoCov">          0 :   my_cquantize_ptr cquantize = (my_cquantize_ptr) cinfo-&gt;cquantize;</span>
+<span class="lineNum">    1147 </span>            : 
+<span class="lineNum">    1148 </span>            :   /* Select the representative colors and fill in cinfo-&gt;colormap */
+<span class="lineNum">    1149 </span><span class="lineNoCov">          0 :   cinfo-&gt;colormap = cquantize-&gt;sv_colormap;</span>
+<span class="lineNum">    1150 </span><span class="lineNoCov">          0 :   select_colors(cinfo, cquantize-&gt;desired);</span>
+<span class="lineNum">    1151 </span>            :   /* Force next pass to zero the color index table */
+<span class="lineNum">    1152 </span><span class="lineNoCov">          0 :   cquantize-&gt;needs_zeroed = TRUE;</span>
+<span class="lineNum">    1153 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1154 </span>            : 
+<a name="1155"><span class="lineNum">    1155 </span>            : </a>
+<span class="lineNum">    1156 </span>            : METHODDEF(void)
+<span class="lineNum">    1157 </span><span class="lineNoCov">          0 : finish_pass2 (j_decompress_ptr cinfo)</span>
+<span class="lineNum">    1158 </span>            : {
+<span class="lineNum">    1159 </span>            :   /* no work */
+<span class="lineNum">    1160 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1161 </span>            : 
+<span class="lineNum">    1162 </span>            : 
+<span class="lineNum">    1163 </span>            : /*
+<span class="lineNum">    1164 </span>            :  * Initialize for each processing pass.
+<span class="lineNum">    1165 </span>            :  */
+<a name="1166"><span class="lineNum">    1166 </span>            : </a>
+<span class="lineNum">    1167 </span>            : METHODDEF(void)
+<span class="lineNum">    1168 </span><span class="lineNoCov">          0 : start_pass_2_quant (j_decompress_ptr cinfo, boolean is_pre_scan)</span>
+<span class="lineNum">    1169 </span>            : {
+<span class="lineNum">    1170 </span><span class="lineNoCov">          0 :   my_cquantize_ptr cquantize = (my_cquantize_ptr) cinfo-&gt;cquantize;</span>
+<span class="lineNum">    1171 </span><span class="lineNoCov">          0 :   hist3d histogram = cquantize-&gt;histogram;</span>
+<span class="lineNum">    1172 </span>            :   int i;
+<span class="lineNum">    1173 </span>            : 
+<span class="lineNum">    1174 </span>            :   /* Only F-S dithering or no dithering is supported. */
+<span class="lineNum">    1175 </span>            :   /* If user asks for ordered dither, give him F-S. */
+<span class="lineNum">    1176 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;dither_mode != JDITHER_NONE)</span>
+<span class="lineNum">    1177 </span><span class="lineNoCov">          0 :     cinfo-&gt;dither_mode = JDITHER_FS;</span>
+<span class="lineNum">    1178 </span>            : 
+<span class="lineNum">    1179 </span><span class="lineNoCov">          0 :   if (is_pre_scan) {</span>
+<span class="lineNum">    1180 </span>            :     /* Set up method pointers */
+<span class="lineNum">    1181 </span><span class="lineNoCov">          0 :     cquantize-&gt;pub.color_quantize = prescan_quantize;</span>
+<span class="lineNum">    1182 </span><span class="lineNoCov">          0 :     cquantize-&gt;pub.finish_pass = finish_pass1;</span>
+<span class="lineNum">    1183 </span><span class="lineNoCov">          0 :     cquantize-&gt;needs_zeroed = TRUE; /* Always zero histogram */</span>
+<span class="lineNum">    1184 </span>            :   } else {
+<span class="lineNum">    1185 </span>            :     /* Set up method pointers */
+<span class="lineNum">    1186 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;dither_mode == JDITHER_FS)</span>
+<span class="lineNum">    1187 </span><span class="lineNoCov">          0 :       cquantize-&gt;pub.color_quantize = pass2_fs_dither;</span>
+<span class="lineNum">    1188 </span>            :     else
+<span class="lineNum">    1189 </span><span class="lineNoCov">          0 :       cquantize-&gt;pub.color_quantize = pass2_no_dither;</span>
+<span class="lineNum">    1190 </span><span class="lineNoCov">          0 :     cquantize-&gt;pub.finish_pass = finish_pass2;</span>
+<span class="lineNum">    1191 </span>            : 
+<span class="lineNum">    1192 </span>            :     /* Make sure color count is acceptable */
+<span class="lineNum">    1193 </span><span class="lineNoCov">          0 :     i = cinfo-&gt;actual_number_of_colors;</span>
+<span class="lineNum">    1194 </span><span class="lineNoCov">          0 :     if (i &lt; 1)</span>
+<span class="lineNum">    1195 </span><span class="lineNoCov">          0 :       ERREXIT1(cinfo, JERR_QUANT_FEW_COLORS, 1);</span>
+<span class="lineNum">    1196 </span><span class="lineNoCov">          0 :     if (i &gt; MAXNUMCOLORS)</span>
+<span class="lineNum">    1197 </span><span class="lineNoCov">          0 :       ERREXIT1(cinfo, JERR_QUANT_MANY_COLORS, MAXNUMCOLORS);</span>
+<span class="lineNum">    1198 </span>            : 
+<span class="lineNum">    1199 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;dither_mode == JDITHER_FS) {</span>
+<span class="lineNum">    1200 </span><span class="lineNoCov">          0 :       size_t arraysize = (size_t) ((cinfo-&gt;output_width + 2) *</span>
+<span class="lineNum">    1201 </span>            :                                    (3 * SIZEOF(FSERROR)));
+<span class="lineNum">    1202 </span>            :       /* Allocate Floyd-Steinberg workspace if we didn't already. */
+<span class="lineNum">    1203 </span><span class="lineNoCov">          0 :       if (cquantize-&gt;fserrors == NULL)</span>
+<span class="lineNum">    1204 </span><span class="lineNoCov">          0 :         cquantize-&gt;fserrors = (FSERRPTR) (*cinfo-&gt;mem-&gt;alloc_large)</span>
+<span class="lineNum">    1205 </span>            :           ((j_common_ptr) cinfo, JPOOL_IMAGE, arraysize);
+<span class="lineNum">    1206 </span>            :       /* Initialize the propagated errors to zero. */
+<span class="lineNum">    1207 </span><span class="lineNoCov">          0 :       FMEMZERO((void FAR *) cquantize-&gt;fserrors, arraysize);</span>
+<span class="lineNum">    1208 </span>            :       /* Make the error-limit table if we didn't already. */
+<span class="lineNum">    1209 </span><span class="lineNoCov">          0 :       if (cquantize-&gt;error_limiter == NULL)</span>
+<span class="lineNum">    1210 </span><span class="lineNoCov">          0 :         init_error_limit(cinfo);</span>
+<span class="lineNum">    1211 </span><span class="lineNoCov">          0 :       cquantize-&gt;on_odd_row = FALSE;</span>
+<span class="lineNum">    1212 </span>            :     }
+<span class="lineNum">    1213 </span>            : 
+<span class="lineNum">    1214 </span>            :   }
+<span class="lineNum">    1215 </span>            :   /* Zero the histogram or inverse color map, if necessary */
+<span class="lineNum">    1216 </span><span class="lineNoCov">          0 :   if (cquantize-&gt;needs_zeroed) {</span>
+<span class="lineNum">    1217 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; HIST_C0_ELEMS; i++) {</span>
+<span class="lineNum">    1218 </span><span class="lineNoCov">          0 :       FMEMZERO((void FAR *) histogram[i],</span>
+<span class="lineNum">    1219 </span>            :                HIST_C1_ELEMS*HIST_C2_ELEMS * SIZEOF(histcell));
+<span class="lineNum">    1220 </span>            :     }
+<span class="lineNum">    1221 </span><span class="lineNoCov">          0 :     cquantize-&gt;needs_zeroed = FALSE;</span>
+<span class="lineNum">    1222 </span>            :   }
+<span class="lineNum">    1223 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1224 </span>            : 
+<span class="lineNum">    1225 </span>            : 
+<span class="lineNum">    1226 </span>            : /*
+<span class="lineNum">    1227 </span>            :  * Switch to a new external colormap between output passes.
+<span class="lineNum">    1228 </span>            :  */
+<a name="1229"><span class="lineNum">    1229 </span>            : </a>
+<span class="lineNum">    1230 </span>            : METHODDEF(void)
+<span class="lineNum">    1231 </span><span class="lineNoCov">          0 : new_color_map_2_quant (j_decompress_ptr cinfo)</span>
+<span class="lineNum">    1232 </span>            : {
+<span class="lineNum">    1233 </span><span class="lineNoCov">          0 :   my_cquantize_ptr cquantize = (my_cquantize_ptr) cinfo-&gt;cquantize;</span>
+<span class="lineNum">    1234 </span>            : 
+<span class="lineNum">    1235 </span>            :   /* Reset the inverse color map */
+<span class="lineNum">    1236 </span><span class="lineNoCov">          0 :   cquantize-&gt;needs_zeroed = TRUE;</span>
+<span class="lineNum">    1237 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1238 </span>            : 
+<span class="lineNum">    1239 </span>            : 
+<span class="lineNum">    1240 </span>            : /*
+<span class="lineNum">    1241 </span>            :  * Module initialization routine for 2-pass color quantization.
+<span class="lineNum">    1242 </span>            :  */
+<a name="1243"><span class="lineNum">    1243 </span>            : </a>
+<span class="lineNum">    1244 </span>            : GLOBAL(void)
+<span class="lineNum">    1245 </span><span class="lineNoCov">          0 : jinit_2pass_quantizer (j_decompress_ptr cinfo)</span>
+<span class="lineNum">    1246 </span>            : {
+<span class="lineNum">    1247 </span>            :   my_cquantize_ptr cquantize;
+<span class="lineNum">    1248 </span>            :   int i;
+<span class="lineNum">    1249 </span>            : 
+<span class="lineNum">    1250 </span><span class="lineNoCov">          0 :   cquantize = (my_cquantize_ptr)</span>
+<span class="lineNum">    1251 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;mem-&gt;alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,</span>
+<span class="lineNum">    1252 </span>            :                                 SIZEOF(my_cquantizer));
+<span class="lineNum">    1253 </span><span class="lineNoCov">          0 :   cinfo-&gt;cquantize = (struct jpeg_color_quantizer *) cquantize;</span>
+<span class="lineNum">    1254 </span><span class="lineNoCov">          0 :   cquantize-&gt;pub.start_pass = start_pass_2_quant;</span>
+<span class="lineNum">    1255 </span><span class="lineNoCov">          0 :   cquantize-&gt;pub.new_color_map = new_color_map_2_quant;</span>
+<span class="lineNum">    1256 </span><span class="lineNoCov">          0 :   cquantize-&gt;fserrors = NULL;        /* flag optional arrays not allocated */</span>
+<span class="lineNum">    1257 </span><span class="lineNoCov">          0 :   cquantize-&gt;error_limiter = NULL;</span>
+<span class="lineNum">    1258 </span>            : 
+<span class="lineNum">    1259 </span>            :   /* Make sure jdmaster didn't give me a case I can't handle */
+<span class="lineNum">    1260 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;out_color_components != 3)</span>
+<span class="lineNum">    1261 </span><span class="lineNoCov">          0 :     ERREXIT(cinfo, JERR_NOTIMPL);</span>
+<span class="lineNum">    1262 </span>            : 
+<span class="lineNum">    1263 </span>            :   /* Allocate the histogram/inverse colormap storage */
+<span class="lineNum">    1264 </span><span class="lineNoCov">          0 :   cquantize-&gt;histogram = (hist3d) (*cinfo-&gt;mem-&gt;alloc_small)</span>
+<span class="lineNum">    1265 </span>            :     ((j_common_ptr) cinfo, JPOOL_IMAGE, HIST_C0_ELEMS * SIZEOF(hist2d));
+<span class="lineNum">    1266 </span><span class="lineNoCov">          0 :   for (i = 0; i &lt; HIST_C0_ELEMS; i++) {</span>
+<span class="lineNum">    1267 </span><span class="lineNoCov">          0 :     cquantize-&gt;histogram[i] = (hist2d) (*cinfo-&gt;mem-&gt;alloc_large)</span>
+<span class="lineNum">    1268 </span>            :       ((j_common_ptr) cinfo, JPOOL_IMAGE,
+<span class="lineNum">    1269 </span>            :        HIST_C1_ELEMS*HIST_C2_ELEMS * SIZEOF(histcell));
+<span class="lineNum">    1270 </span>            :   }
+<span class="lineNum">    1271 </span><span class="lineNoCov">          0 :   cquantize-&gt;needs_zeroed = TRUE; /* histogram is garbage now */</span>
+<span class="lineNum">    1272 </span>            : 
+<span class="lineNum">    1273 </span>            :   /* Allocate storage for the completed colormap, if required.
+<span class="lineNum">    1274 </span>            :    * We do this now since it is FAR storage and may affect
+<span class="lineNum">    1275 </span>            :    * the memory manager's space calculations.
+<span class="lineNum">    1276 </span>            :    */
+<span class="lineNum">    1277 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;enable_2pass_quant) {</span>
+<span class="lineNum">    1278 </span>            :     /* Make sure color count is acceptable */
+<span class="lineNum">    1279 </span><span class="lineNoCov">          0 :     int desired = cinfo-&gt;desired_number_of_colors;</span>
+<span class="lineNum">    1280 </span>            :     /* Lower bound on # of colors ... somewhat arbitrary as long as &gt; 0 */
+<span class="lineNum">    1281 </span><span class="lineNoCov">          0 :     if (desired &lt; 8)</span>
+<span class="lineNum">    1282 </span><span class="lineNoCov">          0 :       ERREXIT1(cinfo, JERR_QUANT_FEW_COLORS, 8);</span>
+<span class="lineNum">    1283 </span>            :     /* Make sure colormap indexes can be represented by JSAMPLEs */
+<span class="lineNum">    1284 </span><span class="lineNoCov">          0 :     if (desired &gt; MAXNUMCOLORS)</span>
+<span class="lineNum">    1285 </span><span class="lineNoCov">          0 :       ERREXIT1(cinfo, JERR_QUANT_MANY_COLORS, MAXNUMCOLORS);</span>
+<span class="lineNum">    1286 </span><span class="lineNoCov">          0 :     cquantize-&gt;sv_colormap = (*cinfo-&gt;mem-&gt;alloc_sarray)</span>
+<span class="lineNum">    1287 </span>            :       ((j_common_ptr) cinfo,JPOOL_IMAGE, (JDIMENSION) desired, (JDIMENSION) 3);
+<span class="lineNum">    1288 </span><span class="lineNoCov">          0 :     cquantize-&gt;desired = desired;</span>
+<span class="lineNum">    1289 </span>            :   } else
+<span class="lineNum">    1290 </span><span class="lineNoCov">          0 :     cquantize-&gt;sv_colormap = NULL;</span>
+<span class="lineNum">    1291 </span>            : 
+<span class="lineNum">    1292 </span>            :   /* Only F-S dithering or no dithering is supported. */
+<span class="lineNum">    1293 </span>            :   /* If user asks for ordered dither, give him F-S. */
+<span class="lineNum">    1294 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;dither_mode != JDITHER_NONE)</span>
+<span class="lineNum">    1295 </span><span class="lineNoCov">          0 :     cinfo-&gt;dither_mode = JDITHER_FS;</span>
+<span class="lineNum">    1296 </span>            : 
+<span class="lineNum">    1297 </span>            :   /* Allocate Floyd-Steinberg workspace if necessary.
+<span class="lineNum">    1298 </span>            :    * This isn't really needed until pass 2, but again it is FAR storage.
+<span class="lineNum">    1299 </span>            :    * Although we will cope with a later change in dither_mode,
+<span class="lineNum">    1300 </span>            :    * we do not promise to honor max_memory_to_use if dither_mode changes.
+<span class="lineNum">    1301 </span>            :    */
+<span class="lineNum">    1302 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;dither_mode == JDITHER_FS) {</span>
+<span class="lineNum">    1303 </span><span class="lineNoCov">          0 :     cquantize-&gt;fserrors = (FSERRPTR) (*cinfo-&gt;mem-&gt;alloc_large)</span>
+<span class="lineNum">    1304 </span>            :       ((j_common_ptr) cinfo, JPOOL_IMAGE,
+<span class="lineNum">    1305 </span><span class="lineNoCov">          0 :        (size_t) ((cinfo-&gt;output_width + 2) * (3 * SIZEOF(FSERROR))));</span>
+<span class="lineNum">    1306 </span>            :     /* Might as well create the error-limiting table too. */
+<span class="lineNum">    1307 </span><span class="lineNoCov">          0 :     init_error_limit(cinfo);</span>
+<span class="lineNum">    1308 </span>            :   }
+<span class="lineNum">    1309 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1310 </span>            : 
+<span class="lineNum">    1311 </span>            : #endif /* QUANT_2PASS_SUPPORTED */
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

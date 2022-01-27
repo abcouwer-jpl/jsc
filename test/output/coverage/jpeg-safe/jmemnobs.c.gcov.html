@@ -1,0 +1,189 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - jpeg-safe/jmemnobs.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">jpeg-safe</a> - jmemnobs.c<span style="font-size: 80%;"> (source / <a href="jmemnobs.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">21</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2020-11-24 12:24:12</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * jmemnobs.c
+<span class="lineNum">       3 </span>            :  *
+<span class="lineNum">       4 </span>            :  * Copyright (C) 1992-1996, Thomas G. Lane.
+<span class="lineNum">       5 </span>            :  * Modified 2019 by Guido Vollbeding.
+<span class="lineNum">       6 </span>            :  * This file is part of the Independent JPEG Group's software.
+<span class="lineNum">       7 </span>            :  * For conditions of distribution and use, see the accompanying README file.
+<span class="lineNum">       8 </span>            :  *
+<span class="lineNum">       9 </span>            :  * This file provides a really simple implementation of the system-
+<span class="lineNum">      10 </span>            :  * dependent portion of the JPEG memory manager.  This implementation
+<span class="lineNum">      11 </span>            :  * assumes that no backing-store files are needed: all required space
+<span class="lineNum">      12 </span>            :  * can be obtained from malloc().
+<span class="lineNum">      13 </span>            :  * This is very portable in the sense that it'll compile on almost anything,
+<span class="lineNum">      14 </span>            :  * but you'd better have lots of main memory (or virtual memory) if you want
+<span class="lineNum">      15 </span>            :  * to process big images.
+<span class="lineNum">      16 </span>            :  * Note that the max_memory_to_use option is respected by this implementation.
+<span class="lineNum">      17 </span>            :  */
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : #define JPEG_INTERNALS
+<span class="lineNum">      20 </span>            : #include &quot;jinclude.h&quot;
+<span class="lineNum">      21 </span>            : #include &quot;jpeglib.h&quot;
+<span class="lineNum">      22 </span>            : #include &quot;jmemsys.h&quot;          /* import the system-dependent declarations */
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            : #ifndef HAVE_STDLIB_H           /* &lt;stdlib.h&gt; should declare malloc(),free() */
+<span class="lineNum">      25 </span>            : extern void * malloc JPP((size_t size));
+<span class="lineNum">      26 </span>            : extern void free JPP((void *ptr));
+<span class="lineNum">      27 </span>            : #endif
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span>            : /*
+<span class="lineNum">      31 </span>            :  * Memory allocation and freeing are controlled by the regular library
+<span class="lineNum">      32 </span>            :  * routines malloc() and free().
+<span class="lineNum">      33 </span>            :  */
+<a name="34"><span class="lineNum">      34 </span>            : </a>
+<span class="lineNum">      35 </span>            : GLOBAL(void *)
+<span class="lineNum">      36 </span><span class="lineNoCov">          0 : jpeg_get_small (j_common_ptr cinfo, size_t sizeofobject)</span>
+<span class="lineNum">      37 </span>            : {
+<span class="lineNum">      38 </span><span class="lineNoCov">          0 :   return (void *) malloc(sizeofobject);</span>
+<span class="lineNum">      39 </span>            : }
+<a name="40"><span class="lineNum">      40 </span>            : </a>
+<span class="lineNum">      41 </span>            : GLOBAL(void)
+<span class="lineNum">      42 </span><span class="lineNoCov">          0 : jpeg_free_small (j_common_ptr cinfo, void * object, size_t sizeofobject)</span>
+<span class="lineNum">      43 </span>            : {
+<span class="lineNum">      44 </span><span class="lineNoCov">          0 :   free(object);</span>
+<span class="lineNum">      45 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span>            : 
+<span class="lineNum">      48 </span>            : /*
+<span class="lineNum">      49 </span>            :  * &quot;Large&quot; objects are treated the same as &quot;small&quot; ones.
+<span class="lineNum">      50 </span>            :  * NB: although we include FAR keywords in the routine declarations,
+<span class="lineNum">      51 </span>            :  * this file won't actually work in 80x86 small/medium model; at least,
+<span class="lineNum">      52 </span>            :  * you probably won't be able to process useful-size images in only 64KB.
+<span class="lineNum">      53 </span>            :  */
+<a name="54"><span class="lineNum">      54 </span>            : </a>
+<span class="lineNum">      55 </span>            : GLOBAL(void FAR *)
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 : jpeg_get_large (j_common_ptr cinfo, size_t sizeofobject)</span>
+<span class="lineNum">      57 </span>            : {
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :   return (void FAR *) malloc(sizeofobject);</span>
+<span class="lineNum">      59 </span>            : }
+<a name="60"><span class="lineNum">      60 </span>            : </a>
+<span class="lineNum">      61 </span>            : GLOBAL(void)
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 : jpeg_free_large (j_common_ptr cinfo, void FAR * object, size_t sizeofobject)</span>
+<span class="lineNum">      63 </span>            : {
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :   free(object);</span>
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      66 </span>            : 
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span>            : /*
+<span class="lineNum">      69 </span>            :  * This routine computes the total memory space available for allocation.
+<span class="lineNum">      70 </span>            :  */
+<a name="71"><span class="lineNum">      71 </span>            : </a>
+<span class="lineNum">      72 </span>            : GLOBAL(long)
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 : jpeg_mem_available (j_common_ptr cinfo, long min_bytes_needed,</span>
+<span class="lineNum">      74 </span>            :                     long max_bytes_needed, long already_allocated)
+<span class="lineNum">      75 </span>            : {
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;mem-&gt;max_memory_to_use)</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :     return cinfo-&gt;mem-&gt;max_memory_to_use - already_allocated;</span>
+<span class="lineNum">      78 </span>            : 
+<span class="lineNum">      79 </span>            :   /* Here we say, &quot;we got all you want bud!&quot; */
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :   return max_bytes_needed;</span>
+<span class="lineNum">      81 </span>            : }
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span>            : /*
+<span class="lineNum">      85 </span>            :  * Backing store (temporary file) management.
+<span class="lineNum">      86 </span>            :  * Since jpeg_mem_available always promised the moon,
+<span class="lineNum">      87 </span>            :  * this should never be called and we can just error out.
+<span class="lineNum">      88 </span>            :  */
+<a name="89"><span class="lineNum">      89 </span>            : </a>
+<span class="lineNum">      90 </span>            : GLOBAL(void)
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 : jpeg_open_backing_store (j_common_ptr cinfo, backing_store_ptr info,</span>
+<span class="lineNum">      92 </span>            :                          long total_bytes_needed)
+<span class="lineNum">      93 </span>            : {
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :   ERREXIT(cinfo, JERR_NO_BACKING_STORE);</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      96 </span>            : 
+<span class="lineNum">      97 </span>            : 
+<span class="lineNum">      98 </span>            : /*
+<span class="lineNum">      99 </span>            :  * These routines take care of any system-dependent initialization and
+<span class="lineNum">     100 </span>            :  * cleanup required.  Here, there isn't any.
+<span class="lineNum">     101 </span>            :  */
+<a name="102"><span class="lineNum">     102 </span>            : </a>
+<span class="lineNum">     103 </span>            : GLOBAL(long)
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 : jpeg_mem_init (j_common_ptr cinfo)</span>
+<span class="lineNum">     105 </span>            : {
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :   return 0;                     /* just set max_memory_to_use to 0 */</span>
+<span class="lineNum">     107 </span>            : }
+<a name="108"><span class="lineNum">     108 </span>            : </a>
+<span class="lineNum">     109 </span>            : GLOBAL(void)
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 : jpeg_mem_term (j_common_ptr cinfo)</span>
+<span class="lineNum">     111 </span>            : {
+<span class="lineNum">     112 </span>            :   /* no work */
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

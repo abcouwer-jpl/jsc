@@ -1,0 +1,30 @@
+JPEG compression results
+Timing results and are averaged over 24 test images.
+color_space, quality, compression ratio, space saving ratio, rms error, max error, compression duration (s), decompression duration (s), compression rate (Mb/s), decompression rate (Mb/s), bits saved rate (Mb/s)
+grayscale, 95, 3.744200, 0.732920, 1.411807, 9.208333, 1.668245, 0.805893, 30.449272, 62.837566, 14.883380
+grayscale, 85, 7.693340, 0.870017, 2.146298, 21.458333, 1.317709, 0.661099, 38.379915, 76.406560, 22.091764
+grayscale, 50, 18.035320, 0.944553, 3.075628, 43.666667, 1.098757, 0.555906, 45.926057, 90.793516, 28.677280
+grayscale, 15, 39.445682, 0.974649, 4.892533, 61.916667, 0.998119, 0.499145, 50.459495, 100.934832, 32.728308
+grayscale, 5, 63.600545, 0.984277, 8.940766, 97.000000, 0.961541, 0.476607, 52.348721, 105.618033, 34.439124
+rgb      , 95, 9.876445, 0.898749, 2.518035, 46.166667, 2.800116, 1.270661, 54.146068, 119.219203, 33.344134
+rgb      , 85, 20.365957, 0.950898, 3.242721, 54.541667, 2.395934, 1.096230, 63.137630, 137.982968, 41.096465
+rgb      , 50, 47.354417, 0.978883, 4.348119, 72.291667, 2.146611, 0.971679, 70.396609, 155.564763, 47.367780
+rgb      , 15, 98.515287, 0.989849, 6.726713, 98.875000, 2.036366, 0.908863, 74.161740, 166.187679, 50.729017
+rgb      , 5, 149.604257, 0.993316, 12.743093, 139.125000, 1.997430, 0.885377, 75.596121, 170.549681, 52.023999
+
+processor info:
+Architecture:        aarch64
+Byte Order:          Little Endian
+CPU(s):              4
+On-line CPU(s) list: 0-3
+Thread(s) per core:  1
+Core(s) per socket:  4
+Socket(s):           1
+Vendor ID:           ARM
+Model:               4
+Model name:          Cortex-A53
+Stepping:            r0p4
+CPU max MHz:         1199.9990
+CPU min MHz:         299.9990
+BogoMIPS:            199.98
+Flags:               fp asimd crc32 cpuid

@@ -1,0 +1,325 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - jpeg-safe/jcinit.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">jpeg-safe</a> - jcinit.c<span style="font-size: 80%;"> (source / <a href="jcinit.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">140</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2020-11-24 12:24:12</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * jcinit.c
+<span class="lineNum">       3 </span>            :  *
+<span class="lineNum">       4 </span>            :  * Copyright (C) 1991-1997, Thomas G. Lane.
+<span class="lineNum">       5 </span>            :  * Modified 2003-2017 by Guido Vollbeding.
+<span class="lineNum">       6 </span>            :  * This file is part of the Independent JPEG Group's software.
+<span class="lineNum">       7 </span>            :  * For conditions of distribution and use, see the accompanying README file.
+<span class="lineNum">       8 </span>            :  *
+<span class="lineNum">       9 </span>            :  * This file contains initialization logic for the JPEG compressor.
+<span class="lineNum">      10 </span>            :  * This routine is in charge of selecting the modules to be executed and
+<span class="lineNum">      11 </span>            :  * making an initialization call to each one.
+<span class="lineNum">      12 </span>            :  *
+<span class="lineNum">      13 </span>            :  * Logically, this code belongs in jcmaster.c.  It's split out because
+<span class="lineNum">      14 </span>            :  * linking this routine implies linking the entire compression library.
+<span class="lineNum">      15 </span>            :  * For a transcoding-only application, we want to be able to use jcmaster.c
+<span class="lineNum">      16 </span>            :  * without linking in the whole library.
+<span class="lineNum">      17 </span>            :  */
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : #define JPEG_INTERNALS
+<span class="lineNum">      20 </span>            : #include &quot;jinclude.h&quot;
+<span class="lineNum">      21 </span>            : #include &quot;jpeglib.h&quot;
+<span class="lineNum">      22 </span>            : 
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            : /*
+<span class="lineNum">      25 </span>            :  * Compute JPEG image dimensions and related values.
+<span class="lineNum">      26 </span>            :  * NOTE: this is exported for possible use by application.
+<span class="lineNum">      27 </span>            :  * Hence it mustn't do anything that can't be done twice.
+<span class="lineNum">      28 </span>            :  */
+<a name="29"><span class="lineNum">      29 </span>            : </a>
+<span class="lineNum">      30 </span>            : GLOBAL(void)
+<span class="lineNum">      31 </span><span class="lineNoCov">          0 : jpeg_calc_jpeg_dimensions (j_compress_ptr cinfo)</span>
+<span class="lineNum">      32 </span>            : /* Do computations that are needed before master selection phase */
+<span class="lineNum">      33 </span>            : {
+<span class="lineNum">      34 </span>            :   /* Sanity check on input image dimensions to prevent overflow in
+<span class="lineNum">      35 </span>            :    * following calculations.
+<span class="lineNum">      36 </span>            :    * We do check jpeg_width and jpeg_height in initial_setup in jcmaster.c,
+<span class="lineNum">      37 </span>            :    * but image_width and image_height can come from arbitrary data,
+<span class="lineNum">      38 </span>            :    * and we need some space for multiplication by block_size.
+<span class="lineNum">      39 </span>            :    */
+<span class="lineNum">      40 </span><span class="lineNoCov">          0 :   if (((long) cinfo-&gt;image_width &gt;&gt; 24) || ((long) cinfo-&gt;image_height &gt;&gt; 24))</span>
+<span class="lineNum">      41 </span><span class="lineNoCov">          0 :     ERREXIT1(cinfo, JERR_IMAGE_TOO_BIG, (unsigned int) JPEG_MAX_DIMENSION);</span>
+<span class="lineNum">      42 </span>            : 
+<span class="lineNum">      43 </span>            : #ifdef DCT_SCALING_SUPPORTED
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span>            :   /* Compute actual JPEG image dimensions and DCT scaling choices. */
+<span class="lineNum">      46 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;scale_num &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">      47 </span>            :     /* Provide block_size/1 scaling */
+<span class="lineNum">      48 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = cinfo-&gt;image_width * cinfo-&gt;block_size;</span>
+<span class="lineNum">      49 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = cinfo-&gt;image_height * cinfo-&gt;block_size;</span>
+<span class="lineNum">      50 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 1;</span>
+<span class="lineNum">      51 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 1;</span>
+<span class="lineNum">      52 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 2 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">      53 </span>            :     /* Provide block_size/2 scaling */
+<span class="lineNum">      54 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 2L);</span>
+<span class="lineNum">      56 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 2L);</span>
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 2;</span>
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 2;</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 3 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">      61 </span>            :     /* Provide block_size/3 scaling */
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 3L);</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 3L);</span>
+<span class="lineNum">      66 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 3;</span>
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 3;</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 4 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">      69 </span>            :     /* Provide block_size/4 scaling */
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 4L);</span>
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 4L);</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 4;</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 4;</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 5 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">      77 </span>            :     /* Provide block_size/5 scaling */
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 5L);</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 5L);</span>
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 5;</span>
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 5;</span>
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 6 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">      85 </span>            :     /* Provide block_size/6 scaling */
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 6L);</span>
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 6L);</span>
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 6;</span>
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 6;</span>
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 7 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">      93 </span>            :     /* Provide block_size/7 scaling */
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 7L);</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 7L);</span>
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 7;</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 7;</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 8 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">     101 </span>            :     /* Provide block_size/8 scaling */
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 8L);</span>
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 8L);</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 8;</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 8;</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 9 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">     109 </span>            :     /* Provide block_size/9 scaling */
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 9L);</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 9L);</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 9;</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 9;</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 10 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">     117 </span>            :     /* Provide block_size/10 scaling */
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 10L);</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 10L);</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 10;</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 10;</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 11 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">     125 </span>            :     /* Provide block_size/11 scaling */
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 11L);</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 11L);</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 11;</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 11;</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 12 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">     133 </span>            :     /* Provide block_size/12 scaling */
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 12L);</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 12L);</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 12;</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 12;</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 13 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">     141 </span>            :     /* Provide block_size/13 scaling */
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 13L);</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 13L);</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 13;</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 13;</span>
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 14 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">     149 </span>            :     /* Provide block_size/14 scaling */
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 14L);</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 14L);</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 14;</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 14;</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * 15 &gt;= cinfo-&gt;scale_denom * cinfo-&gt;block_size) {</span>
+<span class="lineNum">     157 </span>            :     /* Provide block_size/15 scaling */
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 15L);</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 15L);</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 15;</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 15;</span>
+<span class="lineNum">     164 </span>            :   } else {
+<span class="lineNum">     165 </span>            :     /* Provide block_size/16 scaling */
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_width = (JDIMENSION)</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * cinfo-&gt;block_size, 16L);</span>
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :     cinfo-&gt;jpeg_height = (JDIMENSION)</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * cinfo-&gt;block_size, 16L);</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 16;</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 16;</span>
+<span class="lineNum">     172 </span>            :   }
+<span class="lineNum">     173 </span>            : 
+<span class="lineNum">     174 </span>            : #else /* !DCT_SCALING_SUPPORTED */
+<span class="lineNum">     175 </span>            : 
+<span class="lineNum">     176 </span>            :   /* Hardwire it to &quot;no scaling&quot; */
+<span class="lineNum">     177 </span>            :   cinfo-&gt;jpeg_width = cinfo-&gt;image_width;
+<span class="lineNum">     178 </span>            :   cinfo-&gt;jpeg_height = cinfo-&gt;image_height;
+<span class="lineNum">     179 </span>            :   cinfo-&gt;min_DCT_h_scaled_size = DCTSIZE;
+<span class="lineNum">     180 </span>            :   cinfo-&gt;min_DCT_v_scaled_size = DCTSIZE;
+<span class="lineNum">     181 </span>            : 
+<span class="lineNum">     182 </span>            : #endif /* DCT_SCALING_SUPPORTED */
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     184 </span>            : 
+<span class="lineNum">     185 </span>            : 
+<span class="lineNum">     186 </span>            : /*
+<span class="lineNum">     187 </span>            :  * Master selection of compression modules.
+<span class="lineNum">     188 </span>            :  * This is done once at the start of processing an image.  We determine
+<span class="lineNum">     189 </span>            :  * which modules will be used and give them appropriate initialization calls.
+<span class="lineNum">     190 </span>            :  */
+<a name="191"><span class="lineNum">     191 </span>            : </a>
+<span class="lineNum">     192 </span>            : GLOBAL(void)
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 : jinit_compress_master (j_compress_ptr cinfo)</span>
+<span class="lineNum">     194 </span>            : {
+<span class="lineNum">     195 </span>            :   long samplesperrow;
+<span class="lineNum">     196 </span>            :   JDIMENSION jd_samplesperrow;
+<span class="lineNum">     197 </span>            : 
+<span class="lineNum">     198 </span>            :   /* For now, precision must match compiled-in value... */
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;data_precision != BITS_IN_JSAMPLE)</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     ERREXIT1(cinfo, JERR_BAD_PRECISION, cinfo-&gt;data_precision);</span>
+<span class="lineNum">     201 </span>            : 
+<span class="lineNum">     202 </span>            :   /* Sanity check on input image dimensions */
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;image_height &lt;= 0 || cinfo-&gt;image_width &lt;= 0 ||</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :       cinfo-&gt;input_components &lt;= 0)</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :     ERREXIT(cinfo, JERR_EMPTY_IMAGE);</span>
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span>            :   /* Width of an input scanline must be representable as JDIMENSION. */
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :   samplesperrow = (long) cinfo-&gt;image_width * (long) cinfo-&gt;input_components;</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :   jd_samplesperrow = (JDIMENSION) samplesperrow;</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :   if ((long) jd_samplesperrow != samplesperrow)</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     ERREXIT(cinfo, JERR_WIDTH_OVERFLOW);</span>
+<span class="lineNum">     212 </span>            : 
+<span class="lineNum">     213 </span>            :   /* Compute JPEG image dimensions and related values. */
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :   jpeg_calc_jpeg_dimensions(cinfo);</span>
+<span class="lineNum">     215 </span>            : 
+<span class="lineNum">     216 </span>            :   /* Initialize master control (includes parameter checking/processing) */
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :   jinit_c_master_control(cinfo, FALSE /* full compression */);</span>
+<span class="lineNum">     218 </span>            : 
+<span class="lineNum">     219 </span>            :   /* Preprocessing */
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :   if (! cinfo-&gt;raw_data_in) {</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :     jinit_color_converter(cinfo);</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :     jinit_downsampler(cinfo);</span>
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :     jinit_c_prep_controller(cinfo, FALSE /* never need full buffer here */);</span>
+<span class="lineNum">     224 </span>            :   }
+<span class="lineNum">     225 </span>            :   /* Forward DCT */
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :   jinit_forward_dct(cinfo);</span>
+<span class="lineNum">     227 </span>            :   /* Entropy encoding: either Huffman or arithmetic coding. */
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;arith_code)</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :     jinit_arith_encoder(cinfo);</span>
+<span class="lineNum">     230 </span>            :   else {
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :     jinit_huff_encoder(cinfo);</span>
+<span class="lineNum">     232 </span>            :   }
+<span class="lineNum">     233 </span>            : 
+<span class="lineNum">     234 </span>            :   /* Need a full-image coefficient buffer in any multi-pass mode. */
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :   jinit_c_coef_controller(cinfo,</span>
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :                 (boolean) (cinfo-&gt;num_scans &gt; 1 || cinfo-&gt;optimize_coding));</span>
+<span class="lineNum">     237 </span><span class="lineNoCov">          0 :   jinit_c_main_controller(cinfo, FALSE /* never need full buffer here */);</span>
+<span class="lineNum">     238 </span>            : 
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :   jinit_marker_writer(cinfo);</span>
+<span class="lineNum">     240 </span>            : 
+<span class="lineNum">     241 </span>            :   /* We can now tell the memory manager to allocate virtual arrays. */
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;mem-&gt;realize_virt_arrays) ((j_common_ptr) cinfo);</span>
+<span class="lineNum">     243 </span>            : 
+<span class="lineNum">     244 </span>            :   /* Write the datastream header (SOI) immediately.
+<span class="lineNum">     245 </span>            :    * Frame and scan headers are postponed till later.
+<span class="lineNum">     246 </span>            :    * This lets application insert special markers after the SOI.
+<span class="lineNum">     247 </span>            :    */
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;marker-&gt;write_file_header) (cinfo);</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

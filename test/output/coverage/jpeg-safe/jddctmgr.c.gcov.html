@@ -1,0 +1,460 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - jpeg-safe/jddctmgr.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">jpeg-safe</a> - jddctmgr.c<span style="font-size: 80%;"> (source / <a href="jddctmgr.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">197</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2020-11-24 12:24:12</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * jddctmgr.c
+<span class="lineNum">       3 </span>            :  *
+<span class="lineNum">       4 </span>            :  * Copyright (C) 1994-1996, Thomas G. Lane.
+<span class="lineNum">       5 </span>            :  * Modified 2002-2013 by Guido Vollbeding.
+<span class="lineNum">       6 </span>            :  * This file is part of the Independent JPEG Group's software.
+<span class="lineNum">       7 </span>            :  * For conditions of distribution and use, see the accompanying README file.
+<span class="lineNum">       8 </span>            :  *
+<span class="lineNum">       9 </span>            :  * This file contains the inverse-DCT management logic.
+<span class="lineNum">      10 </span>            :  * This code selects a particular IDCT implementation to be used,
+<span class="lineNum">      11 </span>            :  * and it performs related housekeeping chores.  No code in this file
+<span class="lineNum">      12 </span>            :  * is executed per IDCT step, only during output pass setup.
+<span class="lineNum">      13 </span>            :  *
+<span class="lineNum">      14 </span>            :  * Note that the IDCT routines are responsible for performing coefficient
+<span class="lineNum">      15 </span>            :  * dequantization as well as the IDCT proper.  This module sets up the
+<span class="lineNum">      16 </span>            :  * dequantization multiplier table needed by the IDCT routine.
+<span class="lineNum">      17 </span>            :  */
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : #define JPEG_INTERNALS
+<span class="lineNum">      20 </span>            : #include &quot;jinclude.h&quot;
+<span class="lineNum">      21 </span>            : #include &quot;jpeglib.h&quot;
+<span class="lineNum">      22 </span>            : #include &quot;jdct.h&quot;             /* Private declarations for DCT subsystem */
+<span class="lineNum">      23 </span>            : 
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            : /*
+<span class="lineNum">      26 </span>            :  * The decompressor input side (jdinput.c) saves away the appropriate
+<span class="lineNum">      27 </span>            :  * quantization table for each component at the start of the first scan
+<span class="lineNum">      28 </span>            :  * involving that component.  (This is necessary in order to correctly
+<span class="lineNum">      29 </span>            :  * decode files that reuse Q-table slots.)
+<span class="lineNum">      30 </span>            :  * When we are ready to make an output pass, the saved Q-table is converted
+<span class="lineNum">      31 </span>            :  * to a multiplier table that will actually be used by the IDCT routine.
+<span class="lineNum">      32 </span>            :  * The multiplier table contents are IDCT-method-dependent.  To support
+<span class="lineNum">      33 </span>            :  * application changes in IDCT method between scans, we can remake the
+<span class="lineNum">      34 </span>            :  * multiplier tables if necessary.
+<span class="lineNum">      35 </span>            :  * In buffered-image mode, the first output pass may occur before any data
+<span class="lineNum">      36 </span>            :  * has been seen for some components, and thus before their Q-tables have
+<span class="lineNum">      37 </span>            :  * been saved away.  To handle this case, multiplier tables are preset
+<span class="lineNum">      38 </span>            :  * to zeroes; the result of the IDCT will be a neutral gray level.
+<span class="lineNum">      39 </span>            :  */
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span>            : 
+<span class="lineNum">      42 </span>            : /* Private subobject for this module */
+<span class="lineNum">      43 </span>            : 
+<span class="lineNum">      44 </span>            : typedef struct {
+<span class="lineNum">      45 </span>            :   struct jpeg_inverse_dct pub;  /* public fields */
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span>            :   /* This array contains the IDCT method code that each multiplier table
+<span class="lineNum">      48 </span>            :    * is currently set up for, or -1 if it's not yet set up.
+<span class="lineNum">      49 </span>            :    * The actual multiplier tables are pointed to by dct_table in the
+<span class="lineNum">      50 </span>            :    * per-component comp_info structures.
+<span class="lineNum">      51 </span>            :    */
+<span class="lineNum">      52 </span>            :   int cur_method[MAX_COMPONENTS];
+<span class="lineNum">      53 </span>            : } my_idct_controller;
+<span class="lineNum">      54 </span>            : 
+<span class="lineNum">      55 </span>            : typedef my_idct_controller * my_idct_ptr;
+<span class="lineNum">      56 </span>            : 
+<span class="lineNum">      57 </span>            : 
+<span class="lineNum">      58 </span>            : /* Allocated multiplier tables: big enough for any supported variant */
+<span class="lineNum">      59 </span>            : 
+<span class="lineNum">      60 </span>            : typedef union {
+<span class="lineNum">      61 </span>            :   ISLOW_MULT_TYPE islow_array[DCTSIZE2];
+<span class="lineNum">      62 </span>            : #ifdef DCT_IFAST_SUPPORTED
+<span class="lineNum">      63 </span>            :   IFAST_MULT_TYPE ifast_array[DCTSIZE2];
+<span class="lineNum">      64 </span>            : #endif
+<span class="lineNum">      65 </span>            : #ifdef DCT_FLOAT_SUPPORTED
+<span class="lineNum">      66 </span>            :   FLOAT_MULT_TYPE float_array[DCTSIZE2];
+<span class="lineNum">      67 </span>            : #endif
+<span class="lineNum">      68 </span>            : } multiplier_table;
+<span class="lineNum">      69 </span>            : 
+<span class="lineNum">      70 </span>            : 
+<span class="lineNum">      71 </span>            : /* The current scaled-IDCT routines require ISLOW-style multiplier tables,
+<span class="lineNum">      72 </span>            :  * so be sure to compile that code if either ISLOW or SCALING is requested.
+<span class="lineNum">      73 </span>            :  */
+<span class="lineNum">      74 </span>            : #ifdef DCT_ISLOW_SUPPORTED
+<span class="lineNum">      75 </span>            : #define PROVIDE_ISLOW_TABLES
+<span class="lineNum">      76 </span>            : #else
+<span class="lineNum">      77 </span>            : #ifdef IDCT_SCALING_SUPPORTED
+<span class="lineNum">      78 </span>            : #define PROVIDE_ISLOW_TABLES
+<span class="lineNum">      79 </span>            : #endif
+<span class="lineNum">      80 </span>            : #endif
+<span class="lineNum">      81 </span>            : 
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span>            : /*
+<span class="lineNum">      84 </span>            :  * Prepare for an output pass.
+<span class="lineNum">      85 </span>            :  * Here we select the proper IDCT routine for each component and build
+<span class="lineNum">      86 </span>            :  * a matching multiplier table.
+<span class="lineNum">      87 </span>            :  */
+<a name="88"><span class="lineNum">      88 </span>            : </a>
+<span class="lineNum">      89 </span>            : METHODDEF(void)
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 : start_pass (j_decompress_ptr cinfo)</span>
+<span class="lineNum">      91 </span>            : {
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :   my_idct_ptr idct = (my_idct_ptr) cinfo-&gt;idct;</span>
+<span class="lineNum">      93 </span>            :   int ci, i;
+<span class="lineNum">      94 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :   int method = 0;</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :   inverse_DCT_method_ptr method_ptr = NULL;</span>
+<span class="lineNum">      97 </span>            :   JQUANT_TBL * qtbl;
+<span class="lineNum">      98 </span>            : 
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :   for (ci = 0, compptr = cinfo-&gt;comp_info; ci &lt; cinfo-&gt;num_components;</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :        ci++, compptr++) {</span>
+<span class="lineNum">     101 </span>            :     /* Select the proper IDCT routine for this component's scaling */
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :     switch ((compptr-&gt;DCT_h_scaled_size &lt;&lt; 8) + compptr-&gt;DCT_v_scaled_size) {</span>
+<span class="lineNum">     103 </span>            : #ifdef IDCT_SCALING_SUPPORTED
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :     case ((1 &lt;&lt; 8) + 1):</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_1x1;</span>
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :     case ((2 &lt;&lt; 8) + 2):</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_2x2;</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :     case ((3 &lt;&lt; 8) + 3):</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_3x3;</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :     case ((4 &lt;&lt; 8) + 4):</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_4x4;</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     case ((5 &lt;&lt; 8) + 5):</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_5x5;</span>
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :     case ((6 &lt;&lt; 8) + 6):</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_6x6;</span>
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     case ((7 &lt;&lt; 8) + 7):</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_7x7;</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :     case ((9 &lt;&lt; 8) + 9):</span>
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_9x9;</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     case ((10 &lt;&lt; 8) + 10):</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_10x10;</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :     case ((11 &lt;&lt; 8) + 11):</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_11x11;</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :     case ((12 &lt;&lt; 8) + 12):</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_12x12;</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     case ((13 &lt;&lt; 8) + 13):</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_13x13;</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :     case ((14 &lt;&lt; 8) + 14):</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_14x14;</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :     case ((15 &lt;&lt; 8) + 15):</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_15x15;</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :     case ((16 &lt;&lt; 8) + 16):</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_16x16;</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :     case ((16 &lt;&lt; 8) + 8):</span>
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_16x8;</span>
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :     case ((14 &lt;&lt; 8) + 7):</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_14x7;</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :     case ((12 &lt;&lt; 8) + 6):</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_12x6;</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :     case ((10 &lt;&lt; 8) + 5):</span>
+<span class="lineNum">     177 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_10x5;</span>
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :     case ((8 &lt;&lt; 8) + 4):</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_8x4;</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :     case ((6 &lt;&lt; 8) + 3):</span>
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_6x3;</span>
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :     case ((4 &lt;&lt; 8) + 2):</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_4x2;</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :     case ((2 &lt;&lt; 8) + 1):</span>
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_2x1;</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     case ((8 &lt;&lt; 8) + 16):</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_8x16;</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     case ((7 &lt;&lt; 8) + 14):</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_7x14;</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     case ((6 &lt;&lt; 8) + 12):</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_6x12;</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     case ((5 &lt;&lt; 8) + 10):</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_5x10;</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :     case ((4 &lt;&lt; 8) + 8):</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_4x8;</span>
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     case ((3 &lt;&lt; 8) + 6):</span>
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_3x6;</span>
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     case ((2 &lt;&lt; 8) + 4):</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_2x4;</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :     case ((1 &lt;&lt; 8) + 2):</span>
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :       method_ptr = jpeg_idct_1x2;</span>
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :       method = JDCT_ISLOW;      /* jidctint uses islow-style table */</span>
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     228 </span>            : #endif
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :     case ((DCTSIZE &lt;&lt; 8) + DCTSIZE):</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :       switch (cinfo-&gt;dct_method) {</span>
+<span class="lineNum">     231 </span>            : #ifdef DCT_ISLOW_SUPPORTED
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :       case JDCT_ISLOW:</span>
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :         method_ptr = jpeg_idct_islow;</span>
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :         method = JDCT_ISLOW;</span>
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     236 </span>            : #endif
+<span class="lineNum">     237 </span>            : #ifdef DCT_IFAST_SUPPORTED
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :       case JDCT_IFAST:</span>
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :         method_ptr = jpeg_idct_ifast;</span>
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :         method = JDCT_IFAST;</span>
+<span class="lineNum">     241 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     242 </span>            : #endif
+<span class="lineNum">     243 </span>            : #ifdef DCT_FLOAT_SUPPORTED
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :       case JDCT_FLOAT:</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :         method_ptr = jpeg_idct_float;</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :         method = JDCT_FLOAT;</span>
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     248 </span>            : #endif
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :       default:</span>
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :         ERREXIT(cinfo, JERR_NOT_COMPILED);</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     252 </span>            :       }
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :     default:</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :       ERREXIT2(cinfo, JERR_BAD_DCTSIZE,</span>
+<span class="lineNum">     256 </span>            :                compptr-&gt;DCT_h_scaled_size, compptr-&gt;DCT_v_scaled_size);
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     258 </span>            :     }
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :     idct-&gt;pub.inverse_DCT[ci] = method_ptr;</span>
+<span class="lineNum">     260 </span>            :     /* Create multiplier table from quant table.
+<span class="lineNum">     261 </span>            :      * However, we can skip this if the component is uninteresting
+<span class="lineNum">     262 </span>            :      * or if we already built the table.  Also, if no quant table
+<span class="lineNum">     263 </span>            :      * has yet been saved for the component, we leave the
+<span class="lineNum">     264 </span>            :      * multiplier table all-zero; we'll be reading zeroes from the
+<span class="lineNum">     265 </span>            :      * coefficient controller's buffer anyway.
+<span class="lineNum">     266 </span>            :      */
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :     if (! compptr-&gt;component_needed || idct-&gt;cur_method[ci] == method)</span>
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :       continue;</span>
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :     qtbl = compptr-&gt;quant_table;</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :     if (qtbl == NULL)           /* happens if no data yet for component */</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :       continue;</span>
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :     idct-&gt;cur_method[ci] = method;</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :     switch (method) {</span>
+<span class="lineNum">     274 </span>            : #ifdef PROVIDE_ISLOW_TABLES
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     case JDCT_ISLOW:</span>
+<span class="lineNum">     276 </span>            :       {
+<span class="lineNum">     277 </span>            :         /* For LL&amp;M IDCT method, multipliers are equal to raw quantization
+<span class="lineNum">     278 </span>            :          * coefficients, but are stored as ints to ensure access efficiency.
+<span class="lineNum">     279 </span>            :          */
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :         ISLOW_MULT_TYPE * ismtbl = (ISLOW_MULT_TYPE *) compptr-&gt;dct_table;</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; DCTSIZE2; i++) {</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :           ismtbl[i] = (ISLOW_MULT_TYPE) qtbl-&gt;quantval[i];</span>
+<span class="lineNum">     283 </span>            :         }
+<span class="lineNum">     284 </span>            :       }
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     286 </span>            : #endif
+<span class="lineNum">     287 </span>            : #ifdef DCT_IFAST_SUPPORTED
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :     case JDCT_IFAST:</span>
+<span class="lineNum">     289 </span>            :       {
+<span class="lineNum">     290 </span>            :         /* For AA&amp;N IDCT method, multipliers are equal to quantization
+<span class="lineNum">     291 </span>            :          * coefficients scaled by scalefactor[row]*scalefactor[col], where
+<span class="lineNum">     292 </span>            :          *   scalefactor[0] = 1
+<span class="lineNum">     293 </span>            :          *   scalefactor[k] = cos(k*PI/16) * sqrt(2)    for k=1..7
+<span class="lineNum">     294 </span>            :          * For integer operation, the multiplier table is to be scaled by
+<span class="lineNum">     295 </span>            :          * IFAST_SCALE_BITS.
+<span class="lineNum">     296 </span>            :          */
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :         IFAST_MULT_TYPE * ifmtbl = (IFAST_MULT_TYPE *) compptr-&gt;dct_table;</span>
+<span class="lineNum">     298 </span>            : #define CONST_BITS 14
+<span class="lineNum">     299 </span>            :         static const INT16 aanscales[DCTSIZE2] = {
+<span class="lineNum">     300 </span>            :           /* precomputed values scaled up by 14 bits */
+<span class="lineNum">     301 </span>            :           16384, 22725, 21407, 19266, 16384, 12873,  8867,  4520,
+<span class="lineNum">     302 </span>            :           22725, 31521, 29692, 26722, 22725, 17855, 12299,  6270,
+<span class="lineNum">     303 </span>            :           21407, 29692, 27969, 25172, 21407, 16819, 11585,  5906,
+<span class="lineNum">     304 </span>            :           19266, 26722, 25172, 22654, 19266, 15137, 10426,  5315,
+<span class="lineNum">     305 </span>            :           16384, 22725, 21407, 19266, 16384, 12873,  8867,  4520,
+<span class="lineNum">     306 </span>            :           12873, 17855, 16819, 15137, 12873, 10114,  6967,  3552,
+<span class="lineNum">     307 </span>            :            8867, 12299, 11585, 10426,  8867,  6967,  4799,  2446,
+<span class="lineNum">     308 </span>            :            4520,  6270,  5906,  5315,  4520,  3552,  2446,  1247
+<span class="lineNum">     309 </span>            :         };
+<span class="lineNum">     310 </span>            :         SHIFT_TEMPS
+<span class="lineNum">     311 </span>            : 
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :         for (i = 0; i &lt; DCTSIZE2; i++) {</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :           ifmtbl[i] = (IFAST_MULT_TYPE)</span>
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :             DESCALE(MULTIPLY16V16((INT32) qtbl-&gt;quantval[i],</span>
+<span class="lineNum">     315 </span>            :                                   (INT32) aanscales[i]),
+<span class="lineNum">     316 </span>            :                     CONST_BITS-IFAST_SCALE_BITS);
+<span class="lineNum">     317 </span>            :         }
+<span class="lineNum">     318 </span>            :       }
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     320 </span>            : #endif
+<span class="lineNum">     321 </span>            : #ifdef DCT_FLOAT_SUPPORTED
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :     case JDCT_FLOAT:</span>
+<span class="lineNum">     323 </span>            :       {
+<span class="lineNum">     324 </span>            :         /* For float AA&amp;N IDCT method, multipliers are equal to quantization
+<span class="lineNum">     325 </span>            :          * coefficients scaled by scalefactor[row]*scalefactor[col], where
+<span class="lineNum">     326 </span>            :          *   scalefactor[0] = 1
+<span class="lineNum">     327 </span>            :          *   scalefactor[k] = cos(k*PI/16) * sqrt(2)    for k=1..7
+<span class="lineNum">     328 </span>            :          * We apply a further scale factor of 1/8.
+<span class="lineNum">     329 </span>            :          */
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :         FLOAT_MULT_TYPE * fmtbl = (FLOAT_MULT_TYPE *) compptr-&gt;dct_table;</span>
+<span class="lineNum">     331 </span>            :         int row, col;
+<span class="lineNum">     332 </span>            :         static const double aanscalefactor[DCTSIZE] = {
+<span class="lineNum">     333 </span>            :           1.0, 1.387039845, 1.306562965, 1.175875602,
+<span class="lineNum">     334 </span>            :           1.0, 0.785694958, 0.541196100, 0.275899379
+<span class="lineNum">     335 </span>            :         };
+<span class="lineNum">     336 </span>            : 
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :         i = 0;</span>
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :         for (row = 0; row &lt; DCTSIZE; row++) {</span>
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :           for (col = 0; col &lt; DCTSIZE; col++) {</span>
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :             fmtbl[i] = (FLOAT_MULT_TYPE)</span>
+<span class="lineNum">     341 </span><span class="lineNoCov">          0 :               ((double) qtbl-&gt;quantval[i] *</span>
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :                aanscalefactor[row] * aanscalefactor[col] * 0.125);</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :             i++;</span>
+<span class="lineNum">     344 </span>            :           }
+<span class="lineNum">     345 </span>            :         }
+<span class="lineNum">     346 </span>            :       }
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     348 </span>            : #endif
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :     default:</span>
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :       ERREXIT(cinfo, JERR_NOT_COMPILED);</span>
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     352 </span>            :     }
+<span class="lineNum">     353 </span>            :   }
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     355 </span>            : 
+<span class="lineNum">     356 </span>            : 
+<span class="lineNum">     357 </span>            : /*
+<span class="lineNum">     358 </span>            :  * Initialize IDCT manager.
+<span class="lineNum">     359 </span>            :  */
+<a name="360"><span class="lineNum">     360 </span>            : </a>
+<span class="lineNum">     361 </span>            : GLOBAL(void)
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 : jinit_inverse_dct (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     363 </span>            : {
+<span class="lineNum">     364 </span>            :   my_idct_ptr idct;
+<span class="lineNum">     365 </span>            :   int ci;
+<span class="lineNum">     366 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     367 </span>            : 
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :   idct = (my_idct_ptr)</span>
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;mem-&gt;alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,</span>
+<span class="lineNum">     370 </span>            :                                 SIZEOF(my_idct_controller));
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :   cinfo-&gt;idct = &amp;idct-&gt;pub;</span>
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :   idct-&gt;pub.start_pass = start_pass;</span>
+<span class="lineNum">     373 </span>            : 
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :   for (ci = 0, compptr = cinfo-&gt;comp_info; ci &lt; cinfo-&gt;num_components;</span>
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :        ci++, compptr++) {</span>
+<span class="lineNum">     376 </span>            :     /* Allocate and pre-zero a multiplier table for each component */
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :     compptr-&gt;dct_table =</span>
+<span class="lineNum">     378 </span><span class="lineNoCov">          0 :       (*cinfo-&gt;mem-&gt;alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,</span>
+<span class="lineNum">     379 </span>            :                                   SIZEOF(multiplier_table));
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :     MEMZERO(compptr-&gt;dct_table, SIZEOF(multiplier_table));</span>
+<span class="lineNum">     381 </span>            :     /* Mark multiplier table not yet set up for any method */
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :     idct-&gt;cur_method[ci] = -1;</span>
+<span class="lineNum">     383 </span>            :   }
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

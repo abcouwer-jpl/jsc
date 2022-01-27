@@ -1,0 +1,817 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - jpeg-safe/jdcoefct.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">jpeg-safe</a> - jdcoefct.c<span style="font-size: 80%;"> (source / <a href="jdcoefct.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">315</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2020-11-24 12:24:12</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">10</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * jdcoefct.c
+<span class="lineNum">       3 </span>            :  *
+<span class="lineNum">       4 </span>            :  * Copyright (C) 1994-1997, Thomas G. Lane.
+<span class="lineNum">       5 </span>            :  * Modified 2002-2011 by Guido Vollbeding.
+<span class="lineNum">       6 </span>            :  * This file is part of the Independent JPEG Group's software.
+<span class="lineNum">       7 </span>            :  * For conditions of distribution and use, see the accompanying README file.
+<span class="lineNum">       8 </span>            :  *
+<span class="lineNum">       9 </span>            :  * This file contains the coefficient buffer controller for decompression.
+<span class="lineNum">      10 </span>            :  * This controller is the top level of the JPEG decompressor proper.
+<span class="lineNum">      11 </span>            :  * The coefficient buffer lies between entropy decoding and inverse-DCT steps.
+<span class="lineNum">      12 </span>            :  *
+<span class="lineNum">      13 </span>            :  * In buffered-image mode, this controller is the interface between
+<span class="lineNum">      14 </span>            :  * input-oriented processing and output-oriented processing.
+<span class="lineNum">      15 </span>            :  * Also, the input side (only) is used when reading a file for transcoding.
+<span class="lineNum">      16 </span>            :  */
+<span class="lineNum">      17 </span>            : 
+<span class="lineNum">      18 </span>            : #define JPEG_INTERNALS
+<span class="lineNum">      19 </span>            : #include &quot;jinclude.h&quot;
+<span class="lineNum">      20 </span>            : #include &quot;jpeglib.h&quot;
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : /* Block smoothing is only applicable for progressive JPEG, so: */
+<span class="lineNum">      23 </span>            : #ifndef D_PROGRESSIVE_SUPPORTED
+<span class="lineNum">      24 </span>            : #undef BLOCK_SMOOTHING_SUPPORTED
+<span class="lineNum">      25 </span>            : #endif
+<span class="lineNum">      26 </span>            : 
+<span class="lineNum">      27 </span>            : /* Private buffer controller object */
+<span class="lineNum">      28 </span>            : 
+<span class="lineNum">      29 </span>            : typedef struct {
+<span class="lineNum">      30 </span>            :   struct jpeg_d_coef_controller pub; /* public fields */
+<span class="lineNum">      31 </span>            : 
+<span class="lineNum">      32 </span>            :   /* These variables keep track of the current location of the input side. */
+<span class="lineNum">      33 </span>            :   /* cinfo-&gt;input_iMCU_row is also used for this. */
+<span class="lineNum">      34 </span>            :   JDIMENSION MCU_ctr;           /* counts MCUs processed in current row */
+<span class="lineNum">      35 </span>            :   int MCU_vert_offset;          /* counts MCU rows within iMCU row */
+<span class="lineNum">      36 </span>            :   int MCU_rows_per_iMCU_row;    /* number of such rows needed */
+<span class="lineNum">      37 </span>            : 
+<span class="lineNum">      38 </span>            :   /* The output side's location is represented by cinfo-&gt;output_iMCU_row. */
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span>            :   /* In single-pass modes, it's sufficient to buffer just one MCU.
+<span class="lineNum">      41 </span>            :    * We allocate a workspace of D_MAX_BLOCKS_IN_MCU coefficient blocks,
+<span class="lineNum">      42 </span>            :    * and let the entropy decoder write into that workspace each time.
+<span class="lineNum">      43 </span>            :    * (On 80x86, the workspace is FAR even though it's not really very big;
+<span class="lineNum">      44 </span>            :    * this is to keep the module interfaces unchanged when a large coefficient
+<span class="lineNum">      45 </span>            :    * buffer is necessary.)
+<span class="lineNum">      46 </span>            :    * In multi-pass modes, this array points to the current MCU's blocks
+<span class="lineNum">      47 </span>            :    * within the virtual arrays; it is used only by the input side.
+<span class="lineNum">      48 </span>            :    */
+<span class="lineNum">      49 </span>            :   JBLOCKROW MCU_buffer[D_MAX_BLOCKS_IN_MCU];
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span>            : #ifdef D_MULTISCAN_FILES_SUPPORTED
+<span class="lineNum">      52 </span>            :   /* In multi-pass modes, we need a virtual block array for each component. */
+<span class="lineNum">      53 </span>            :   jvirt_barray_ptr whole_image[MAX_COMPONENTS];
+<span class="lineNum">      54 </span>            : #endif
+<span class="lineNum">      55 </span>            : 
+<span class="lineNum">      56 </span>            : #ifdef BLOCK_SMOOTHING_SUPPORTED
+<span class="lineNum">      57 </span>            :   /* When doing block smoothing, we latch coefficient Al values here */
+<span class="lineNum">      58 </span>            :   int * coef_bits_latch;
+<span class="lineNum">      59 </span>            : #define SAVED_COEFS  6          /* we save coef_bits[0..5] */
+<span class="lineNum">      60 </span>            : #endif
+<span class="lineNum">      61 </span>            : } my_coef_controller;
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span>            : typedef my_coef_controller * my_coef_ptr;
+<span class="lineNum">      64 </span>            : 
+<span class="lineNum">      65 </span>            : /* Forward declarations */
+<span class="lineNum">      66 </span>            : METHODDEF(int) decompress_onepass
+<span class="lineNum">      67 </span>            :         JPP((j_decompress_ptr cinfo, JSAMPIMAGE output_buf));
+<span class="lineNum">      68 </span>            : #ifdef D_MULTISCAN_FILES_SUPPORTED
+<span class="lineNum">      69 </span>            : METHODDEF(int) decompress_data
+<span class="lineNum">      70 </span>            :         JPP((j_decompress_ptr cinfo, JSAMPIMAGE output_buf));
+<span class="lineNum">      71 </span>            : #endif
+<span class="lineNum">      72 </span>            : #ifdef BLOCK_SMOOTHING_SUPPORTED
+<span class="lineNum">      73 </span>            : LOCAL(boolean) smoothing_ok JPP((j_decompress_ptr cinfo));
+<span class="lineNum">      74 </span>            : METHODDEF(int) decompress_smooth_data
+<span class="lineNum">      75 </span>            :         JPP((j_decompress_ptr cinfo, JSAMPIMAGE output_buf));
+<span class="lineNum">      76 </span>            : #endif
+<span class="lineNum">      77 </span>            : 
+<a name="78"><span class="lineNum">      78 </span>            : </a>
+<span class="lineNum">      79 </span>            : LOCAL(void)
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 : start_iMCU_row (j_decompress_ptr cinfo)</span>
+<span class="lineNum">      81 </span>            : /* Reset within-iMCU-row counters for a new row (input side) */
+<span class="lineNum">      82 </span>            : {
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">      84 </span>            : 
+<span class="lineNum">      85 </span>            :   /* In an interleaved scan, an MCU row is the same as an iMCU row.
+<span class="lineNum">      86 </span>            :    * In a noninterleaved scan, an iMCU row has v_samp_factor MCU rows.
+<span class="lineNum">      87 </span>            :    * But at the bottom of the image, process only what's left.
+<span class="lineNum">      88 </span>            :    */
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;comps_in_scan &gt; 1) {</span>
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :     coef-&gt;MCU_rows_per_iMCU_row = 1;</span>
+<span class="lineNum">      91 </span>            :   } else {
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;input_iMCU_row &lt; (cinfo-&gt;total_iMCU_rows-1))</span>
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :       coef-&gt;MCU_rows_per_iMCU_row = cinfo-&gt;cur_comp_info[0]-&gt;v_samp_factor;</span>
+<span class="lineNum">      94 </span>            :     else
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :       coef-&gt;MCU_rows_per_iMCU_row = cinfo-&gt;cur_comp_info[0]-&gt;last_row_height;</span>
+<span class="lineNum">      96 </span>            :   }
+<span class="lineNum">      97 </span>            : 
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :   coef-&gt;MCU_ctr = 0;</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :   coef-&gt;MCU_vert_offset = 0;</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     101 </span>            : 
+<span class="lineNum">     102 </span>            : 
+<span class="lineNum">     103 </span>            : /*
+<span class="lineNum">     104 </span>            :  * Initialize for an input processing pass.
+<span class="lineNum">     105 </span>            :  */
+<a name="106"><span class="lineNum">     106 </span>            : </a>
+<span class="lineNum">     107 </span>            : METHODDEF(void)
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 : start_input_pass (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     109 </span>            : {
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :   cinfo-&gt;input_iMCU_row = 0;</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :   start_iMCU_row(cinfo);</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     113 </span>            : 
+<span class="lineNum">     114 </span>            : 
+<span class="lineNum">     115 </span>            : /*
+<span class="lineNum">     116 </span>            :  * Initialize for an output processing pass.
+<span class="lineNum">     117 </span>            :  */
+<a name="118"><span class="lineNum">     118 </span>            : </a>
+<span class="lineNum">     119 </span>            : METHODDEF(void)
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 : start_output_pass (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     121 </span>            : {
+<span class="lineNum">     122 </span>            : #ifdef BLOCK_SMOOTHING_SUPPORTED
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">     124 </span>            : 
+<span class="lineNum">     125 </span>            :   /* If multipass, check to see whether to use block smoothing on this pass */
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :   if (coef-&gt;pub.coef_arrays != NULL) {</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;do_block_smoothing &amp;&amp; smoothing_ok(cinfo))</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :       coef-&gt;pub.decompress_data = decompress_smooth_data;</span>
+<span class="lineNum">     129 </span>            :     else
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :       coef-&gt;pub.decompress_data = decompress_data;</span>
+<span class="lineNum">     131 </span>            :   }
+<span class="lineNum">     132 </span>            : #endif
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :   cinfo-&gt;output_iMCU_row = 0;</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     135 </span>            : 
+<span class="lineNum">     136 </span>            : 
+<span class="lineNum">     137 </span>            : /*
+<span class="lineNum">     138 </span>            :  * Decompress and return some data in the single-pass case.
+<span class="lineNum">     139 </span>            :  * Always attempts to emit one fully interleaved MCU row (&quot;iMCU&quot; row).
+<span class="lineNum">     140 </span>            :  * Input and output must run in lockstep since we have only a one-MCU buffer.
+<span class="lineNum">     141 </span>            :  * Return value is JPEG_ROW_COMPLETED, JPEG_SCAN_COMPLETED, or JPEG_SUSPENDED.
+<span class="lineNum">     142 </span>            :  *
+<span class="lineNum">     143 </span>            :  * NB: output_buf contains a plane for each component in image,
+<span class="lineNum">     144 </span>            :  * which we index according to the component's SOF position.
+<span class="lineNum">     145 </span>            :  */
+<a name="146"><span class="lineNum">     146 </span>            : </a>
+<span class="lineNum">     147 </span>            : METHODDEF(int)
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 : decompress_onepass (j_decompress_ptr cinfo, JSAMPIMAGE output_buf)</span>
+<span class="lineNum">     149 </span>            : {
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">     151 </span>            :   JDIMENSION MCU_col_num;       /* index of current MCU within row */
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :   JDIMENSION last_MCU_col = cinfo-&gt;MCUs_per_row - 1;</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :   JDIMENSION last_iMCU_row = cinfo-&gt;total_iMCU_rows - 1;</span>
+<span class="lineNum">     154 </span>            :   int blkn, ci, xindex, yindex, yoffset, useful_width;
+<span class="lineNum">     155 </span>            :   JSAMPARRAY output_ptr;
+<span class="lineNum">     156 </span>            :   JDIMENSION start_col, output_col;
+<span class="lineNum">     157 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     158 </span>            :   inverse_DCT_method_ptr inverse_DCT;
+<span class="lineNum">     159 </span>            : 
+<span class="lineNum">     160 </span>            :   /* Loop to process as much as one whole iMCU row */
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :   for (yoffset = coef-&gt;MCU_vert_offset; yoffset &lt; coef-&gt;MCU_rows_per_iMCU_row;</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :        yoffset++) {</span>
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :     for (MCU_col_num = coef-&gt;MCU_ctr; MCU_col_num &lt;= last_MCU_col;</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :          MCU_col_num++) {</span>
+<span class="lineNum">     165 </span>            :       /* Try to fetch an MCU.  Entropy decoder expects buffer to be zeroed. */
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :       if (cinfo-&gt;lim_Se)     /* can bypass in DC only case */</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :         FMEMZERO((void FAR *) coef-&gt;MCU_buffer[0],</span>
+<span class="lineNum">     168 </span>            :                  (size_t) (cinfo-&gt;blocks_in_MCU * SIZEOF(JBLOCK)));
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :       if (! (*cinfo-&gt;entropy-&gt;decode_mcu) (cinfo, coef-&gt;MCU_buffer)) {</span>
+<span class="lineNum">     170 </span>            :         /* Suspension forced; update state counters and exit */
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :         coef-&gt;MCU_vert_offset = yoffset;</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :         coef-&gt;MCU_ctr = MCU_col_num;</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :         return JPEG_SUSPENDED;</span>
+<span class="lineNum">     174 </span>            :       }
+<span class="lineNum">     175 </span>            :       /* Determine where data should go in output_buf and do the IDCT thing.
+<span class="lineNum">     176 </span>            :        * We skip dummy blocks at the right and bottom edges (but blkn gets
+<span class="lineNum">     177 </span>            :        * incremented past them!).  Note the inner loop relies on having
+<span class="lineNum">     178 </span>            :        * allocated the MCU_buffer[] blocks sequentially.
+<span class="lineNum">     179 </span>            :        */
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :       blkn = 0;                 /* index of current DCT block within MCU */</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :       for (ci = 0; ci &lt; cinfo-&gt;comps_in_scan; ci++) {</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :         compptr = cinfo-&gt;cur_comp_info[ci];</span>
+<span class="lineNum">     183 </span>            :         /* Don't bother to IDCT an uninteresting component. */
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :         if (! compptr-&gt;component_needed) {</span>
+<span class="lineNum">     185 </span><span class="lineNoCov">          0 :           blkn += compptr-&gt;MCU_blocks;</span>
+<span class="lineNum">     186 </span><span class="lineNoCov">          0 :           continue;</span>
+<span class="lineNum">     187 </span>            :         }
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :         inverse_DCT = cinfo-&gt;idct-&gt;inverse_DCT[compptr-&gt;component_index];</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :         useful_width = (MCU_col_num &lt; last_MCU_col) ? compptr-&gt;MCU_width</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :                                                     : compptr-&gt;last_col_width;</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :         output_ptr = output_buf[compptr-&gt;component_index] +</span>
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :           yoffset * compptr-&gt;DCT_v_scaled_size;</span>
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :         start_col = MCU_col_num * compptr-&gt;MCU_sample_width;</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :         for (yindex = 0; yindex &lt; compptr-&gt;MCU_height; yindex++) {</span>
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :           if (cinfo-&gt;input_iMCU_row &lt; last_iMCU_row ||</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :               yoffset+yindex &lt; compptr-&gt;last_row_height) {</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :             output_col = start_col;</span>
+<span class="lineNum">     198 </span><span class="lineNoCov">          0 :             for (xindex = 0; xindex &lt; useful_width; xindex++) {</span>
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :               (*inverse_DCT) (cinfo, compptr,</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :                               (JCOEFPTR) coef-&gt;MCU_buffer[blkn+xindex],</span>
+<span class="lineNum">     201 </span>            :                               output_ptr, output_col);
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :               output_col += compptr-&gt;DCT_h_scaled_size;</span>
+<span class="lineNum">     203 </span>            :             }
+<span class="lineNum">     204 </span>            :           }
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :           blkn += compptr-&gt;MCU_width;</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :           output_ptr += compptr-&gt;DCT_v_scaled_size;</span>
+<span class="lineNum">     207 </span>            :         }
+<span class="lineNum">     208 </span>            :       }
+<span class="lineNum">     209 </span>            :     }
+<span class="lineNum">     210 </span>            :     /* Completed an MCU row, but perhaps not an iMCU row */
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     coef-&gt;MCU_ctr = 0;</span>
+<span class="lineNum">     212 </span>            :   }
+<span class="lineNum">     213 </span>            :   /* Completed the iMCU row, advance counters for next one */
+<span class="lineNum">     214 </span><span class="lineNoCov">          0 :   cinfo-&gt;output_iMCU_row++;</span>
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :   if (++(cinfo-&gt;input_iMCU_row) &lt; cinfo-&gt;total_iMCU_rows) {</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     start_iMCU_row(cinfo);</span>
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :     return JPEG_ROW_COMPLETED;</span>
+<span class="lineNum">     218 </span>            :   }
+<span class="lineNum">     219 </span>            :   /* Completed the scan */
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;inputctl-&gt;finish_input_pass) (cinfo);</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :   return JPEG_SCAN_COMPLETED;</span>
+<span class="lineNum">     222 </span>            : }
+<span class="lineNum">     223 </span>            : 
+<span class="lineNum">     224 </span>            : 
+<span class="lineNum">     225 </span>            : /*
+<span class="lineNum">     226 </span>            :  * Dummy consume-input routine for single-pass operation.
+<span class="lineNum">     227 </span>            :  */
+<a name="228"><span class="lineNum">     228 </span>            : </a>
+<span class="lineNum">     229 </span>            : METHODDEF(int)
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 : dummy_consume_data (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     231 </span>            : {
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :   return JPEG_SUSPENDED;        /* Always indicate nothing was done */</span>
+<span class="lineNum">     233 </span>            : }
+<span class="lineNum">     234 </span>            : 
+<span class="lineNum">     235 </span>            : 
+<span class="lineNum">     236 </span>            : #ifdef D_MULTISCAN_FILES_SUPPORTED
+<span class="lineNum">     237 </span>            : 
+<span class="lineNum">     238 </span>            : /*
+<span class="lineNum">     239 </span>            :  * Consume input data and store it in the full-image coefficient buffer.
+<span class="lineNum">     240 </span>            :  * We read as much as one fully interleaved MCU row (&quot;iMCU&quot; row) per call,
+<span class="lineNum">     241 </span>            :  * ie, v_samp_factor block rows for each component in the scan.
+<span class="lineNum">     242 </span>            :  * Return value is JPEG_ROW_COMPLETED, JPEG_SCAN_COMPLETED, or JPEG_SUSPENDED.
+<span class="lineNum">     243 </span>            :  */
+<a name="244"><span class="lineNum">     244 </span>            : </a>
+<span class="lineNum">     245 </span>            : METHODDEF(int)
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 : consume_data (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     247 </span>            : {
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">     249 </span>            :   JDIMENSION MCU_col_num;       /* index of current MCU within row */
+<span class="lineNum">     250 </span>            :   int blkn, ci, xindex, yindex, yoffset;
+<span class="lineNum">     251 </span>            :   JDIMENSION start_col;
+<span class="lineNum">     252 </span>            :   JBLOCKARRAY buffer[MAX_COMPS_IN_SCAN];
+<span class="lineNum">     253 </span>            :   JBLOCKROW buffer_ptr;
+<span class="lineNum">     254 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     255 </span>            : 
+<span class="lineNum">     256 </span>            :   /* Align the virtual buffers for the components used in this scan. */
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :   for (ci = 0; ci &lt; cinfo-&gt;comps_in_scan; ci++) {</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :     compptr = cinfo-&gt;cur_comp_info[ci];</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :     buffer[ci] = (*cinfo-&gt;mem-&gt;access_virt_barray)</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :       ((j_common_ptr) cinfo, coef-&gt;whole_image[compptr-&gt;component_index],</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :        cinfo-&gt;input_iMCU_row * compptr-&gt;v_samp_factor,</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :        (JDIMENSION) compptr-&gt;v_samp_factor, TRUE);</span>
+<span class="lineNum">     263 </span>            :     /* Note: entropy decoder expects buffer to be zeroed,
+<span class="lineNum">     264 </span>            :      * but this is handled automatically by the memory manager
+<span class="lineNum">     265 </span>            :      * because we requested a pre-zeroed array.
+<span class="lineNum">     266 </span>            :      */
+<span class="lineNum">     267 </span>            :   }
+<span class="lineNum">     268 </span>            : 
+<span class="lineNum">     269 </span>            :   /* Loop to process one whole iMCU row */
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :   for (yoffset = coef-&gt;MCU_vert_offset; yoffset &lt; coef-&gt;MCU_rows_per_iMCU_row;</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :        yoffset++) {</span>
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :     for (MCU_col_num = coef-&gt;MCU_ctr; MCU_col_num &lt; cinfo-&gt;MCUs_per_row;</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :          MCU_col_num++) {</span>
+<span class="lineNum">     274 </span>            :       /* Construct list of pointers to DCT blocks belonging to this MCU */
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :       blkn = 0;                 /* index of current DCT block within MCU */</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :       for (ci = 0; ci &lt; cinfo-&gt;comps_in_scan; ci++) {</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :         compptr = cinfo-&gt;cur_comp_info[ci];</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :         start_col = MCU_col_num * compptr-&gt;MCU_width;</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :         for (yindex = 0; yindex &lt; compptr-&gt;MCU_height; yindex++) {</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :           buffer_ptr = buffer[ci][yindex+yoffset] + start_col;</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :           for (xindex = 0; xindex &lt; compptr-&gt;MCU_width; xindex++) {</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :             coef-&gt;MCU_buffer[blkn++] = buffer_ptr++;</span>
+<span class="lineNum">     283 </span>            :           }
+<span class="lineNum">     284 </span>            :         }
+<span class="lineNum">     285 </span>            :       }
+<span class="lineNum">     286 </span>            :       /* Try to fetch the MCU. */
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :       if (! (*cinfo-&gt;entropy-&gt;decode_mcu) (cinfo, coef-&gt;MCU_buffer)) {</span>
+<span class="lineNum">     288 </span>            :         /* Suspension forced; update state counters and exit */
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :         coef-&gt;MCU_vert_offset = yoffset;</span>
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :         coef-&gt;MCU_ctr = MCU_col_num;</span>
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :         return JPEG_SUSPENDED;</span>
+<span class="lineNum">     292 </span>            :       }
+<span class="lineNum">     293 </span>            :     }
+<span class="lineNum">     294 </span>            :     /* Completed an MCU row, but perhaps not an iMCU row */
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     coef-&gt;MCU_ctr = 0;</span>
+<span class="lineNum">     296 </span>            :   }
+<span class="lineNum">     297 </span>            :   /* Completed the iMCU row, advance counters for next one */
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :   if (++(cinfo-&gt;input_iMCU_row) &lt; cinfo-&gt;total_iMCU_rows) {</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :     start_iMCU_row(cinfo);</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :     return JPEG_ROW_COMPLETED;</span>
+<span class="lineNum">     301 </span>            :   }
+<span class="lineNum">     302 </span>            :   /* Completed the scan */
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;inputctl-&gt;finish_input_pass) (cinfo);</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :   return JPEG_SCAN_COMPLETED;</span>
+<span class="lineNum">     305 </span>            : }
+<span class="lineNum">     306 </span>            : 
+<span class="lineNum">     307 </span>            : 
+<span class="lineNum">     308 </span>            : /*
+<span class="lineNum">     309 </span>            :  * Decompress and return some data in the multi-pass case.
+<span class="lineNum">     310 </span>            :  * Always attempts to emit one fully interleaved MCU row (&quot;iMCU&quot; row).
+<span class="lineNum">     311 </span>            :  * Return value is JPEG_ROW_COMPLETED, JPEG_SCAN_COMPLETED, or JPEG_SUSPENDED.
+<span class="lineNum">     312 </span>            :  *
+<span class="lineNum">     313 </span>            :  * NB: output_buf contains a plane for each component in image.
+<span class="lineNum">     314 </span>            :  */
+<a name="315"><span class="lineNum">     315 </span>            : </a>
+<span class="lineNum">     316 </span>            : METHODDEF(int)
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 : decompress_data (j_decompress_ptr cinfo, JSAMPIMAGE output_buf)</span>
+<span class="lineNum">     318 </span>            : {
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :   JDIMENSION last_iMCU_row = cinfo-&gt;total_iMCU_rows - 1;</span>
+<span class="lineNum">     321 </span>            :   JDIMENSION block_num;
+<span class="lineNum">     322 </span>            :   int ci, block_row, block_rows;
+<span class="lineNum">     323 </span>            :   JBLOCKARRAY buffer;
+<span class="lineNum">     324 </span>            :   JBLOCKROW buffer_ptr;
+<span class="lineNum">     325 </span>            :   JSAMPARRAY output_ptr;
+<span class="lineNum">     326 </span>            :   JDIMENSION output_col;
+<span class="lineNum">     327 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     328 </span>            :   inverse_DCT_method_ptr inverse_DCT;
+<span class="lineNum">     329 </span>            : 
+<span class="lineNum">     330 </span>            :   /* Force some input to be done if we are getting ahead of the input. */
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :   while (cinfo-&gt;input_scan_number &lt; cinfo-&gt;output_scan_number ||</span>
+<span class="lineNum">     332 </span><span class="lineNoCov">          0 :          (cinfo-&gt;input_scan_number == cinfo-&gt;output_scan_number &amp;&amp;</span>
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :           cinfo-&gt;input_iMCU_row &lt;= cinfo-&gt;output_iMCU_row)) {</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :     if ((*cinfo-&gt;inputctl-&gt;consume_input)(cinfo) == JPEG_SUSPENDED)</span>
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :       return JPEG_SUSPENDED;</span>
+<span class="lineNum">     336 </span>            :   }
+<span class="lineNum">     337 </span>            : 
+<span class="lineNum">     338 </span>            :   /* OK, output from the virtual arrays. */
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :   for (ci = 0, compptr = cinfo-&gt;comp_info; ci &lt; cinfo-&gt;num_components;</span>
+<span class="lineNum">     340 </span><span class="lineNoCov">          0 :        ci++, compptr++) {</span>
+<span class="lineNum">     341 </span>            :     /* Don't bother to IDCT an uninteresting component. */
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :     if (! compptr-&gt;component_needed)</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :       continue;</span>
+<span class="lineNum">     344 </span>            :     /* Align the virtual buffer for this component. */
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :     buffer = (*cinfo-&gt;mem-&gt;access_virt_barray)</span>
+<span class="lineNum">     346 </span>            :       ((j_common_ptr) cinfo, coef-&gt;whole_image[ci],
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :        cinfo-&gt;output_iMCU_row * compptr-&gt;v_samp_factor,</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :        (JDIMENSION) compptr-&gt;v_samp_factor, FALSE);</span>
+<span class="lineNum">     349 </span>            :     /* Count non-dummy DCT block rows in this iMCU row. */
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;output_iMCU_row &lt; last_iMCU_row)</span>
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :       block_rows = compptr-&gt;v_samp_factor;</span>
+<span class="lineNum">     352 </span>            :     else {
+<span class="lineNum">     353 </span>            :       /* NB: can't use last_row_height here; it is input-side-dependent! */
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :       block_rows = (int) (compptr-&gt;height_in_blocks % compptr-&gt;v_samp_factor);</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :       if (block_rows == 0) block_rows = compptr-&gt;v_samp_factor;</span>
+<span class="lineNum">     356 </span>            :     }
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :     inverse_DCT = cinfo-&gt;idct-&gt;inverse_DCT[ci];</span>
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :     output_ptr = output_buf[ci];</span>
+<span class="lineNum">     359 </span>            :     /* Loop over all DCT blocks to be processed. */
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :     for (block_row = 0; block_row &lt; block_rows; block_row++) {</span>
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :       buffer_ptr = buffer[block_row];</span>
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :       output_col = 0;</span>
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :       for (block_num = 0; block_num &lt; compptr-&gt;width_in_blocks; block_num++) {</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :         (*inverse_DCT) (cinfo, compptr, (JCOEFPTR) buffer_ptr,</span>
+<span class="lineNum">     365 </span>            :                         output_ptr, output_col);
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :         buffer_ptr++;</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :         output_col += compptr-&gt;DCT_h_scaled_size;</span>
+<span class="lineNum">     368 </span>            :       }
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :       output_ptr += compptr-&gt;DCT_v_scaled_size;</span>
+<span class="lineNum">     370 </span>            :     }
+<span class="lineNum">     371 </span>            :   }
+<span class="lineNum">     372 </span>            : 
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 :   if (++(cinfo-&gt;output_iMCU_row) &lt; cinfo-&gt;total_iMCU_rows)</span>
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :     return JPEG_ROW_COMPLETED;</span>
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :   return JPEG_SCAN_COMPLETED;</span>
+<span class="lineNum">     376 </span>            : }
+<span class="lineNum">     377 </span>            : 
+<span class="lineNum">     378 </span>            : #endif /* D_MULTISCAN_FILES_SUPPORTED */
+<span class="lineNum">     379 </span>            : 
+<span class="lineNum">     380 </span>            : 
+<span class="lineNum">     381 </span>            : #ifdef BLOCK_SMOOTHING_SUPPORTED
+<span class="lineNum">     382 </span>            : 
+<span class="lineNum">     383 </span>            : /*
+<span class="lineNum">     384 </span>            :  * This code applies interblock smoothing as described by section K.8
+<span class="lineNum">     385 </span>            :  * of the JPEG standard: the first 5 AC coefficients are estimated from
+<span class="lineNum">     386 </span>            :  * the DC values of a DCT block and its 8 neighboring blocks.
+<span class="lineNum">     387 </span>            :  * We apply smoothing only for progressive JPEG decoding, and only if
+<span class="lineNum">     388 </span>            :  * the coefficients it can estimate are not yet known to full precision.
+<span class="lineNum">     389 </span>            :  */
+<span class="lineNum">     390 </span>            : 
+<span class="lineNum">     391 </span>            : /* Natural-order array positions of the first 5 zigzag-order coefficients */
+<span class="lineNum">     392 </span>            : #define Q01_POS  1
+<span class="lineNum">     393 </span>            : #define Q10_POS  8
+<span class="lineNum">     394 </span>            : #define Q20_POS  16
+<span class="lineNum">     395 </span>            : #define Q11_POS  9
+<span class="lineNum">     396 </span>            : #define Q02_POS  2
+<span class="lineNum">     397 </span>            : 
+<span class="lineNum">     398 </span>            : /*
+<span class="lineNum">     399 </span>            :  * Determine whether block smoothing is applicable and safe.
+<span class="lineNum">     400 </span>            :  * We also latch the current states of the coef_bits[] entries for the
+<span class="lineNum">     401 </span>            :  * AC coefficients; otherwise, if the input side of the decompressor
+<span class="lineNum">     402 </span>            :  * advances into a new scan, we might think the coefficients are known
+<span class="lineNum">     403 </span>            :  * more accurately than they really are.
+<span class="lineNum">     404 </span>            :  */
+<a name="405"><span class="lineNum">     405 </span>            : </a>
+<span class="lineNum">     406 </span>            : LOCAL(boolean)
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 : smoothing_ok (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     408 </span>            : {
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :   boolean smoothing_useful = FALSE;</span>
+<span class="lineNum">     411 </span>            :   int ci, coefi;
+<span class="lineNum">     412 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     413 </span>            :   JQUANT_TBL * qtable;
+<span class="lineNum">     414 </span>            :   int * coef_bits;
+<span class="lineNum">     415 </span>            :   int * coef_bits_latch;
+<span class="lineNum">     416 </span>            : 
+<span class="lineNum">     417 </span><span class="lineNoCov">          0 :   if (! cinfo-&gt;progressive_mode || cinfo-&gt;coef_bits == NULL)</span>
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :     return FALSE;</span>
+<span class="lineNum">     419 </span>            : 
+<span class="lineNum">     420 </span>            :   /* Allocate latch area if not already done */
+<span class="lineNum">     421 </span><span class="lineNoCov">          0 :   if (coef-&gt;coef_bits_latch == NULL)</span>
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 :     coef-&gt;coef_bits_latch = (int *)</span>
+<span class="lineNum">     423 </span><span class="lineNoCov">          0 :       (*cinfo-&gt;mem-&gt;alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,</span>
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :                                   cinfo-&gt;num_components *</span>
+<span class="lineNum">     425 </span>            :                                   (SAVED_COEFS * SIZEOF(int)));
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :   coef_bits_latch = coef-&gt;coef_bits_latch;</span>
+<span class="lineNum">     427 </span>            : 
+<span class="lineNum">     428 </span><span class="lineNoCov">          0 :   for (ci = 0, compptr = cinfo-&gt;comp_info; ci &lt; cinfo-&gt;num_components;</span>
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :        ci++, compptr++) {</span>
+<span class="lineNum">     430 </span>            :     /* All components' quantization values must already be latched. */
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :     if ((qtable = compptr-&gt;quant_table) == NULL)</span>
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :       return FALSE;</span>
+<span class="lineNum">     433 </span>            :     /* Verify DC &amp; first 5 AC quantizers are nonzero to avoid zero-divide. */
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :     if (qtable-&gt;quantval[0] == 0 ||</span>
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :         qtable-&gt;quantval[Q01_POS] == 0 ||</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :         qtable-&gt;quantval[Q10_POS] == 0 ||</span>
+<span class="lineNum">     437 </span><span class="lineNoCov">          0 :         qtable-&gt;quantval[Q20_POS] == 0 ||</span>
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :         qtable-&gt;quantval[Q11_POS] == 0 ||</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :         qtable-&gt;quantval[Q02_POS] == 0)</span>
+<span class="lineNum">     440 </span><span class="lineNoCov">          0 :       return FALSE;</span>
+<span class="lineNum">     441 </span>            :     /* DC values must be at least partly known for all components. */
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :     coef_bits = cinfo-&gt;coef_bits[ci];</span>
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :     if (coef_bits[0] &lt; 0)</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :       return FALSE;</span>
+<span class="lineNum">     445 </span>            :     /* Block smoothing is helpful if some AC coefficients remain inaccurate. */
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :     for (coefi = 1; coefi &lt;= 5; coefi++) {</span>
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :       coef_bits_latch[coefi] = coef_bits[coefi];</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :       if (coef_bits[coefi] != 0)</span>
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :         smoothing_useful = TRUE;</span>
+<span class="lineNum">     450 </span>            :     }
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :     coef_bits_latch += SAVED_COEFS;</span>
+<span class="lineNum">     452 </span>            :   }
+<span class="lineNum">     453 </span>            : 
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :   return smoothing_useful;</span>
+<span class="lineNum">     455 </span>            : }
+<span class="lineNum">     456 </span>            : 
+<span class="lineNum">     457 </span>            : 
+<span class="lineNum">     458 </span>            : /*
+<span class="lineNum">     459 </span>            :  * Variant of decompress_data for use when doing block smoothing.
+<span class="lineNum">     460 </span>            :  */
+<a name="461"><span class="lineNum">     461 </span>            : </a>
+<span class="lineNum">     462 </span>            : METHODDEF(int)
+<span class="lineNum">     463 </span><span class="lineNoCov">          0 : decompress_smooth_data (j_decompress_ptr cinfo, JSAMPIMAGE output_buf)</span>
+<span class="lineNum">     464 </span>            : {
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :   my_coef_ptr coef = (my_coef_ptr) cinfo-&gt;coef;</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :   JDIMENSION last_iMCU_row = cinfo-&gt;total_iMCU_rows - 1;</span>
+<span class="lineNum">     467 </span>            :   JDIMENSION block_num, last_block_column;
+<span class="lineNum">     468 </span>            :   int ci, block_row, block_rows, access_rows;
+<span class="lineNum">     469 </span>            :   JBLOCKARRAY buffer;
+<span class="lineNum">     470 </span>            :   JBLOCKROW buffer_ptr, prev_block_row, next_block_row;
+<span class="lineNum">     471 </span>            :   JSAMPARRAY output_ptr;
+<span class="lineNum">     472 </span>            :   JDIMENSION output_col;
+<span class="lineNum">     473 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     474 </span>            :   inverse_DCT_method_ptr inverse_DCT;
+<span class="lineNum">     475 </span>            :   boolean first_row, last_row;
+<span class="lineNum">     476 </span>            :   JBLOCK workspace;
+<span class="lineNum">     477 </span>            :   int *coef_bits;
+<span class="lineNum">     478 </span>            :   JQUANT_TBL *quanttbl;
+<span class="lineNum">     479 </span>            :   INT32 Q00,Q01,Q02,Q10,Q11,Q20, num;
+<span class="lineNum">     480 </span>            :   int DC1,DC2,DC3,DC4,DC5,DC6,DC7,DC8,DC9;
+<span class="lineNum">     481 </span>            :   int Al, pred;
+<span class="lineNum">     482 </span>            : 
+<span class="lineNum">     483 </span>            :   /* Force some input to be done if we are getting ahead of the input. */
+<span class="lineNum">     484 </span><span class="lineNoCov">          0 :   while (cinfo-&gt;input_scan_number &lt;= cinfo-&gt;output_scan_number &amp;&amp;</span>
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :          ! cinfo-&gt;inputctl-&gt;eoi_reached) {</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;input_scan_number == cinfo-&gt;output_scan_number) {</span>
+<span class="lineNum">     487 </span>            :       /* If input is working on current scan, we ordinarily want it to
+<span class="lineNum">     488 </span>            :        * have completed the current row.  But if input scan is DC,
+<span class="lineNum">     489 </span>            :        * we want it to keep one row ahead so that next block row's DC
+<span class="lineNum">     490 </span>            :        * values are up to date.
+<span class="lineNum">     491 </span>            :        */
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :       JDIMENSION delta = (cinfo-&gt;Ss == 0) ? 1 : 0;</span>
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 :       if (cinfo-&gt;input_iMCU_row &gt; cinfo-&gt;output_iMCU_row+delta)</span>
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :         break;</span>
+<span class="lineNum">     495 </span>            :     }
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :     if ((*cinfo-&gt;inputctl-&gt;consume_input)(cinfo) == JPEG_SUSPENDED)</span>
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :       return JPEG_SUSPENDED;</span>
+<span class="lineNum">     498 </span>            :   }
+<span class="lineNum">     499 </span>            : 
+<span class="lineNum">     500 </span>            :   /* OK, output from the virtual arrays. */
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :   for (ci = 0, compptr = cinfo-&gt;comp_info; ci &lt; cinfo-&gt;num_components;</span>
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :        ci++, compptr++) {</span>
+<span class="lineNum">     503 </span>            :     /* Don't bother to IDCT an uninteresting component. */
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :     if (! compptr-&gt;component_needed)</span>
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :       continue;</span>
+<span class="lineNum">     506 </span>            :     /* Count non-dummy DCT block rows in this iMCU row. */
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;output_iMCU_row &lt; last_iMCU_row) {</span>
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :       block_rows = compptr-&gt;v_samp_factor;</span>
+<span class="lineNum">     509 </span><span class="lineNoCov">          0 :       access_rows = block_rows * 2; /* this and next iMCU row */</span>
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :       last_row = FALSE;</span>
+<span class="lineNum">     511 </span>            :     } else {
+<span class="lineNum">     512 </span>            :       /* NB: can't use last_row_height here; it is input-side-dependent! */
+<span class="lineNum">     513 </span><span class="lineNoCov">          0 :       block_rows = (int) (compptr-&gt;height_in_blocks % compptr-&gt;v_samp_factor);</span>
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :       if (block_rows == 0) block_rows = compptr-&gt;v_samp_factor;</span>
+<span class="lineNum">     515 </span><span class="lineNoCov">          0 :       access_rows = block_rows; /* this iMCU row only */</span>
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :       last_row = TRUE;</span>
+<span class="lineNum">     517 </span>            :     }
+<span class="lineNum">     518 </span>            :     /* Align the virtual buffer for this component. */
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;output_iMCU_row &gt; 0) {</span>
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :       access_rows += compptr-&gt;v_samp_factor; /* prior iMCU row too */</span>
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 :       buffer = (*cinfo-&gt;mem-&gt;access_virt_barray)</span>
+<span class="lineNum">     522 </span>            :         ((j_common_ptr) cinfo, coef-&gt;whole_image[ci],
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :          (cinfo-&gt;output_iMCU_row - 1) * compptr-&gt;v_samp_factor,</span>
+<span class="lineNum">     524 </span>            :          (JDIMENSION) access_rows, FALSE);
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :       buffer += compptr-&gt;v_samp_factor;      /* point to current iMCU row */</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :       first_row = FALSE;</span>
+<span class="lineNum">     527 </span>            :     } else {
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 :       buffer = (*cinfo-&gt;mem-&gt;access_virt_barray)</span>
+<span class="lineNum">     529 </span>            :         ((j_common_ptr) cinfo, coef-&gt;whole_image[ci],
+<span class="lineNum">     530 </span>            :          (JDIMENSION) 0, (JDIMENSION) access_rows, FALSE);
+<span class="lineNum">     531 </span><span class="lineNoCov">          0 :       first_row = TRUE;</span>
+<span class="lineNum">     532 </span>            :     }
+<span class="lineNum">     533 </span>            :     /* Fetch component-dependent info */
+<span class="lineNum">     534 </span><span class="lineNoCov">          0 :     coef_bits = coef-&gt;coef_bits_latch + (ci * SAVED_COEFS);</span>
+<span class="lineNum">     535 </span><span class="lineNoCov">          0 :     quanttbl = compptr-&gt;quant_table;</span>
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :     Q00 = quanttbl-&gt;quantval[0];</span>
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :     Q01 = quanttbl-&gt;quantval[Q01_POS];</span>
+<span class="lineNum">     538 </span><span class="lineNoCov">          0 :     Q10 = quanttbl-&gt;quantval[Q10_POS];</span>
+<span class="lineNum">     539 </span><span class="lineNoCov">          0 :     Q20 = quanttbl-&gt;quantval[Q20_POS];</span>
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 :     Q11 = quanttbl-&gt;quantval[Q11_POS];</span>
+<span class="lineNum">     541 </span><span class="lineNoCov">          0 :     Q02 = quanttbl-&gt;quantval[Q02_POS];</span>
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :     inverse_DCT = cinfo-&gt;idct-&gt;inverse_DCT[ci];</span>
+<span class="lineNum">     543 </span><span class="lineNoCov">          0 :     output_ptr = output_buf[ci];</span>
+<span class="lineNum">     544 </span>            :     /* Loop over all DCT blocks to be processed. */
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 :     for (block_row = 0; block_row &lt; block_rows; block_row++) {</span>
+<span class="lineNum">     546 </span><span class="lineNoCov">          0 :       buffer_ptr = buffer[block_row];</span>
+<span class="lineNum">     547 </span><span class="lineNoCov">          0 :       if (first_row &amp;&amp; block_row == 0)</span>
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :         prev_block_row = buffer_ptr;</span>
+<span class="lineNum">     549 </span>            :       else
+<span class="lineNum">     550 </span><span class="lineNoCov">          0 :         prev_block_row = buffer[block_row-1];</span>
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :       if (last_row &amp;&amp; block_row == block_rows-1)</span>
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :         next_block_row = buffer_ptr;</span>
+<span class="lineNum">     553 </span>            :       else
+<span class="lineNum">     554 </span><span class="lineNoCov">          0 :         next_block_row = buffer[block_row+1];</span>
+<span class="lineNum">     555 </span>            :       /* We fetch the surrounding DC values using a sliding-register approach.
+<span class="lineNum">     556 </span>            :        * Initialize all nine here so as to do the right thing on narrow pics.
+<span class="lineNum">     557 </span>            :        */
+<span class="lineNum">     558 </span><span class="lineNoCov">          0 :       DC1 = DC2 = DC3 = (int) prev_block_row[0][0];</span>
+<span class="lineNum">     559 </span><span class="lineNoCov">          0 :       DC4 = DC5 = DC6 = (int) buffer_ptr[0][0];</span>
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 :       DC7 = DC8 = DC9 = (int) next_block_row[0][0];</span>
+<span class="lineNum">     561 </span><span class="lineNoCov">          0 :       output_col = 0;</span>
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :       last_block_column = compptr-&gt;width_in_blocks - 1;</span>
+<span class="lineNum">     563 </span><span class="lineNoCov">          0 :       for (block_num = 0; block_num &lt;= last_block_column; block_num++) {</span>
+<span class="lineNum">     564 </span>            :         /* Fetch current DCT block into workspace so we can modify it. */
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 :         jcopy_block_row(buffer_ptr, (JBLOCKROW) workspace, (JDIMENSION) 1);</span>
+<span class="lineNum">     566 </span>            :         /* Update DC values */
+<span class="lineNum">     567 </span><span class="lineNoCov">          0 :         if (block_num &lt; last_block_column) {</span>
+<span class="lineNum">     568 </span><span class="lineNoCov">          0 :           DC3 = (int) prev_block_row[1][0];</span>
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :           DC6 = (int) buffer_ptr[1][0];</span>
+<span class="lineNum">     570 </span><span class="lineNoCov">          0 :           DC9 = (int) next_block_row[1][0];</span>
+<span class="lineNum">     571 </span>            :         }
+<span class="lineNum">     572 </span>            :         /* Compute coefficient estimates per K.8.
+<span class="lineNum">     573 </span>            :          * An estimate is applied only if coefficient is still zero,
+<span class="lineNum">     574 </span>            :          * and is not known to be fully accurate.
+<span class="lineNum">     575 </span>            :          */
+<span class="lineNum">     576 </span>            :         /* AC01 */
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :         if ((Al=coef_bits[1]) != 0 &amp;&amp; workspace[1] == 0) {</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :           num = 36 * Q00 * (DC4 - DC6);</span>
+<span class="lineNum">     579 </span><span class="lineNoCov">          0 :           if (num &gt;= 0) {</span>
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :             pred = (int) (((Q01&lt;&lt;7) + num) / (Q01&lt;&lt;8));</span>
+<span class="lineNum">     581 </span><span class="lineNoCov">          0 :             if (Al &gt; 0 &amp;&amp; pred &gt;= (1&lt;&lt;Al))</span>
+<span class="lineNum">     582 </span><span class="lineNoCov">          0 :               pred = (1&lt;&lt;Al)-1;</span>
+<span class="lineNum">     583 </span>            :           } else {
+<span class="lineNum">     584 </span><span class="lineNoCov">          0 :             pred = (int) (((Q01&lt;&lt;7) - num) / (Q01&lt;&lt;8));</span>
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :             if (Al &gt; 0 &amp;&amp; pred &gt;= (1&lt;&lt;Al))</span>
+<span class="lineNum">     586 </span><span class="lineNoCov">          0 :               pred = (1&lt;&lt;Al)-1;</span>
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :             pred = -pred;</span>
+<span class="lineNum">     588 </span>            :           }
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :           workspace[1] = (JCOEF) pred;</span>
+<span class="lineNum">     590 </span>            :         }
+<span class="lineNum">     591 </span>            :         /* AC10 */
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 :         if ((Al=coef_bits[2]) != 0 &amp;&amp; workspace[8] == 0) {</span>
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :           num = 36 * Q00 * (DC2 - DC8);</span>
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :           if (num &gt;= 0) {</span>
+<span class="lineNum">     595 </span><span class="lineNoCov">          0 :             pred = (int) (((Q10&lt;&lt;7) + num) / (Q10&lt;&lt;8));</span>
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :             if (Al &gt; 0 &amp;&amp; pred &gt;= (1&lt;&lt;Al))</span>
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :               pred = (1&lt;&lt;Al)-1;</span>
+<span class="lineNum">     598 </span>            :           } else {
+<span class="lineNum">     599 </span><span class="lineNoCov">          0 :             pred = (int) (((Q10&lt;&lt;7) - num) / (Q10&lt;&lt;8));</span>
+<span class="lineNum">     600 </span><span class="lineNoCov">          0 :             if (Al &gt; 0 &amp;&amp; pred &gt;= (1&lt;&lt;Al))</span>
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :               pred = (1&lt;&lt;Al)-1;</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :             pred = -pred;</span>
+<span class="lineNum">     603 </span>            :           }
+<span class="lineNum">     604 </span><span class="lineNoCov">          0 :           workspace[8] = (JCOEF) pred;</span>
+<span class="lineNum">     605 </span>            :         }
+<span class="lineNum">     606 </span>            :         /* AC20 */
+<span class="lineNum">     607 </span><span class="lineNoCov">          0 :         if ((Al=coef_bits[3]) != 0 &amp;&amp; workspace[16] == 0) {</span>
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 :           num = 9 * Q00 * (DC2 + DC8 - 2*DC5);</span>
+<span class="lineNum">     609 </span><span class="lineNoCov">          0 :           if (num &gt;= 0) {</span>
+<span class="lineNum">     610 </span><span class="lineNoCov">          0 :             pred = (int) (((Q20&lt;&lt;7) + num) / (Q20&lt;&lt;8));</span>
+<span class="lineNum">     611 </span><span class="lineNoCov">          0 :             if (Al &gt; 0 &amp;&amp; pred &gt;= (1&lt;&lt;Al))</span>
+<span class="lineNum">     612 </span><span class="lineNoCov">          0 :               pred = (1&lt;&lt;Al)-1;</span>
+<span class="lineNum">     613 </span>            :           } else {
+<span class="lineNum">     614 </span><span class="lineNoCov">          0 :             pred = (int) (((Q20&lt;&lt;7) - num) / (Q20&lt;&lt;8));</span>
+<span class="lineNum">     615 </span><span class="lineNoCov">          0 :             if (Al &gt; 0 &amp;&amp; pred &gt;= (1&lt;&lt;Al))</span>
+<span class="lineNum">     616 </span><span class="lineNoCov">          0 :               pred = (1&lt;&lt;Al)-1;</span>
+<span class="lineNum">     617 </span><span class="lineNoCov">          0 :             pred = -pred;</span>
+<span class="lineNum">     618 </span>            :           }
+<span class="lineNum">     619 </span><span class="lineNoCov">          0 :           workspace[16] = (JCOEF) pred;</span>
+<span class="lineNum">     620 </span>            :         }
+<span class="lineNum">     621 </span>            :         /* AC11 */
+<span class="lineNum">     622 </span><span class="lineNoCov">          0 :         if ((Al=coef_bits[4]) != 0 &amp;&amp; workspace[9] == 0) {</span>
+<span class="lineNum">     623 </span><span class="lineNoCov">          0 :           num = 5 * Q00 * (DC1 - DC3 - DC7 + DC9);</span>
+<span class="lineNum">     624 </span><span class="lineNoCov">          0 :           if (num &gt;= 0) {</span>
+<span class="lineNum">     625 </span><span class="lineNoCov">          0 :             pred = (int) (((Q11&lt;&lt;7) + num) / (Q11&lt;&lt;8));</span>
+<span class="lineNum">     626 </span><span class="lineNoCov">          0 :             if (Al &gt; 0 &amp;&amp; pred &gt;= (1&lt;&lt;Al))</span>
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :               pred = (1&lt;&lt;Al)-1;</span>
+<span class="lineNum">     628 </span>            :           } else {
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 :             pred = (int) (((Q11&lt;&lt;7) - num) / (Q11&lt;&lt;8));</span>
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :             if (Al &gt; 0 &amp;&amp; pred &gt;= (1&lt;&lt;Al))</span>
+<span class="lineNum">     631 </span><span class="lineNoCov">          0 :               pred = (1&lt;&lt;Al)-1;</span>
+<span class="lineNum">     632 </span><span class="lineNoCov">          0 :             pred = -pred;</span>
+<span class="lineNum">     633 </span>            :           }
+<span class="lineNum">     634 </span><span class="lineNoCov">          0 :           workspace[9] = (JCOEF) pred;</span>
+<span class="lineNum">     635 </span>            :         }
+<span class="lineNum">     636 </span>            :         /* AC02 */
+<span class="lineNum">     637 </span><span class="lineNoCov">          0 :         if ((Al=coef_bits[5]) != 0 &amp;&amp; workspace[2] == 0) {</span>
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :           num = 9 * Q00 * (DC4 + DC6 - 2*DC5);</span>
+<span class="lineNum">     639 </span><span class="lineNoCov">          0 :           if (num &gt;= 0) {</span>
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :             pred = (int) (((Q02&lt;&lt;7) + num) / (Q02&lt;&lt;8));</span>
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :             if (Al &gt; 0 &amp;&amp; pred &gt;= (1&lt;&lt;Al))</span>
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :               pred = (1&lt;&lt;Al)-1;</span>
+<span class="lineNum">     643 </span>            :           } else {
+<span class="lineNum">     644 </span><span class="lineNoCov">          0 :             pred = (int) (((Q02&lt;&lt;7) - num) / (Q02&lt;&lt;8));</span>
+<span class="lineNum">     645 </span><span class="lineNoCov">          0 :             if (Al &gt; 0 &amp;&amp; pred &gt;= (1&lt;&lt;Al))</span>
+<span class="lineNum">     646 </span><span class="lineNoCov">          0 :               pred = (1&lt;&lt;Al)-1;</span>
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 :             pred = -pred;</span>
+<span class="lineNum">     648 </span>            :           }
+<span class="lineNum">     649 </span><span class="lineNoCov">          0 :           workspace[2] = (JCOEF) pred;</span>
+<span class="lineNum">     650 </span>            :         }
+<span class="lineNum">     651 </span>            :         /* OK, do the IDCT */
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 :         (*inverse_DCT) (cinfo, compptr, (JCOEFPTR) workspace,</span>
+<span class="lineNum">     653 </span>            :                         output_ptr, output_col);
+<span class="lineNum">     654 </span>            :         /* Advance for next column */
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :         DC1 = DC2; DC2 = DC3;</span>
+<span class="lineNum">     656 </span><span class="lineNoCov">          0 :         DC4 = DC5; DC5 = DC6;</span>
+<span class="lineNum">     657 </span><span class="lineNoCov">          0 :         DC7 = DC8; DC8 = DC9;</span>
+<span class="lineNum">     658 </span><span class="lineNoCov">          0 :         buffer_ptr++, prev_block_row++, next_block_row++;</span>
+<span class="lineNum">     659 </span><span class="lineNoCov">          0 :         output_col += compptr-&gt;DCT_h_scaled_size;</span>
+<span class="lineNum">     660 </span>            :       }
+<span class="lineNum">     661 </span><span class="lineNoCov">          0 :       output_ptr += compptr-&gt;DCT_v_scaled_size;</span>
+<span class="lineNum">     662 </span>            :     }
+<span class="lineNum">     663 </span>            :   }
+<span class="lineNum">     664 </span>            : 
+<span class="lineNum">     665 </span><span class="lineNoCov">          0 :   if (++(cinfo-&gt;output_iMCU_row) &lt; cinfo-&gt;total_iMCU_rows)</span>
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :     return JPEG_ROW_COMPLETED;</span>
+<span class="lineNum">     667 </span><span class="lineNoCov">          0 :   return JPEG_SCAN_COMPLETED;</span>
+<span class="lineNum">     668 </span>            : }
+<span class="lineNum">     669 </span>            : 
+<span class="lineNum">     670 </span>            : #endif /* BLOCK_SMOOTHING_SUPPORTED */
+<span class="lineNum">     671 </span>            : 
+<span class="lineNum">     672 </span>            : 
+<span class="lineNum">     673 </span>            : /*
+<span class="lineNum">     674 </span>            :  * Initialize coefficient buffer controller.
+<span class="lineNum">     675 </span>            :  */
+<a name="676"><span class="lineNum">     676 </span>            : </a>
+<span class="lineNum">     677 </span>            : GLOBAL(void)
+<span class="lineNum">     678 </span><span class="lineNoCov">          0 : jinit_d_coef_controller (j_decompress_ptr cinfo, boolean need_full_buffer)</span>
+<span class="lineNum">     679 </span>            : {
+<span class="lineNum">     680 </span>            :   my_coef_ptr coef;
+<span class="lineNum">     681 </span>            : 
+<span class="lineNum">     682 </span><span class="lineNoCov">          0 :   coef = (my_coef_ptr)</span>
+<span class="lineNum">     683 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;mem-&gt;alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,</span>
+<span class="lineNum">     684 </span>            :                                 SIZEOF(my_coef_controller));
+<span class="lineNum">     685 </span><span class="lineNoCov">          0 :   cinfo-&gt;coef = (struct jpeg_d_coef_controller *) coef;</span>
+<span class="lineNum">     686 </span><span class="lineNoCov">          0 :   coef-&gt;pub.start_input_pass = start_input_pass;</span>
+<span class="lineNum">     687 </span><span class="lineNoCov">          0 :   coef-&gt;pub.start_output_pass = start_output_pass;</span>
+<span class="lineNum">     688 </span>            : #ifdef BLOCK_SMOOTHING_SUPPORTED
+<span class="lineNum">     689 </span><span class="lineNoCov">          0 :   coef-&gt;coef_bits_latch = NULL;</span>
+<span class="lineNum">     690 </span>            : #endif
+<span class="lineNum">     691 </span>            : 
+<span class="lineNum">     692 </span>            :   /* Create the coefficient buffer. */
+<span class="lineNum">     693 </span><span class="lineNoCov">          0 :   if (need_full_buffer) {</span>
+<span class="lineNum">     694 </span>            : #ifdef D_MULTISCAN_FILES_SUPPORTED
+<span class="lineNum">     695 </span>            :     /* Allocate a full-image virtual array for each component, */
+<span class="lineNum">     696 </span>            :     /* padded to a multiple of samp_factor DCT blocks in each direction. */
+<span class="lineNum">     697 </span>            :     /* Note we ask for a pre-zeroed array. */
+<span class="lineNum">     698 </span>            :     int ci, access_rows;
+<span class="lineNum">     699 </span>            :     jpeg_component_info *compptr;
+<span class="lineNum">     700 </span>            : 
+<span class="lineNum">     701 </span><span class="lineNoCov">          0 :     for (ci = 0, compptr = cinfo-&gt;comp_info; ci &lt; cinfo-&gt;num_components;</span>
+<span class="lineNum">     702 </span><span class="lineNoCov">          0 :          ci++, compptr++) {</span>
+<span class="lineNum">     703 </span><span class="lineNoCov">          0 :       access_rows = compptr-&gt;v_samp_factor;</span>
+<span class="lineNum">     704 </span>            : #ifdef BLOCK_SMOOTHING_SUPPORTED
+<span class="lineNum">     705 </span>            :       /* If block smoothing could be used, need a bigger window */
+<span class="lineNum">     706 </span><span class="lineNoCov">          0 :       if (cinfo-&gt;progressive_mode)</span>
+<span class="lineNum">     707 </span><span class="lineNoCov">          0 :         access_rows *= 3;</span>
+<span class="lineNum">     708 </span>            : #endif
+<span class="lineNum">     709 </span><span class="lineNoCov">          0 :       coef-&gt;whole_image[ci] = (*cinfo-&gt;mem-&gt;request_virt_barray)</span>
+<span class="lineNum">     710 </span>            :         ((j_common_ptr) cinfo, JPOOL_IMAGE, TRUE,
+<span class="lineNum">     711 </span><span class="lineNoCov">          0 :          (JDIMENSION) jround_up((long) compptr-&gt;width_in_blocks,</span>
+<span class="lineNum">     712 </span><span class="lineNoCov">          0 :                                 (long) compptr-&gt;h_samp_factor),</span>
+<span class="lineNum">     713 </span><span class="lineNoCov">          0 :          (JDIMENSION) jround_up((long) compptr-&gt;height_in_blocks,</span>
+<span class="lineNum">     714 </span><span class="lineNoCov">          0 :                                 (long) compptr-&gt;v_samp_factor),</span>
+<span class="lineNum">     715 </span>            :          (JDIMENSION) access_rows);
+<span class="lineNum">     716 </span>            :     }
+<span class="lineNum">     717 </span><span class="lineNoCov">          0 :     coef-&gt;pub.consume_data = consume_data;</span>
+<span class="lineNum">     718 </span><span class="lineNoCov">          0 :     coef-&gt;pub.decompress_data = decompress_data;</span>
+<span class="lineNum">     719 </span><span class="lineNoCov">          0 :     coef-&gt;pub.coef_arrays = coef-&gt;whole_image; /* link to virtual arrays */</span>
+<span class="lineNum">     720 </span>            : #else
+<span class="lineNum">     721 </span>            :     ERREXIT(cinfo, JERR_NOT_COMPILED);
+<span class="lineNum">     722 </span>            : #endif
+<span class="lineNum">     723 </span>            :   } else {
+<span class="lineNum">     724 </span>            :     /* We only need a single-MCU buffer. */
+<span class="lineNum">     725 </span>            :     JBLOCKROW buffer;
+<span class="lineNum">     726 </span>            :     int i;
+<span class="lineNum">     727 </span>            : 
+<span class="lineNum">     728 </span><span class="lineNoCov">          0 :     buffer = (JBLOCKROW)</span>
+<span class="lineNum">     729 </span><span class="lineNoCov">          0 :       (*cinfo-&gt;mem-&gt;alloc_large) ((j_common_ptr) cinfo, JPOOL_IMAGE,</span>
+<span class="lineNum">     730 </span>            :                                   D_MAX_BLOCKS_IN_MCU * SIZEOF(JBLOCK));
+<span class="lineNum">     731 </span><span class="lineNoCov">          0 :     for (i = 0; i &lt; D_MAX_BLOCKS_IN_MCU; i++) {</span>
+<span class="lineNum">     732 </span><span class="lineNoCov">          0 :       coef-&gt;MCU_buffer[i] = buffer + i;</span>
+<span class="lineNum">     733 </span>            :     }
+<span class="lineNum">     734 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;lim_Se == 0)  /* DC only case: want to bypass later */</span>
+<span class="lineNum">     735 </span><span class="lineNoCov">          0 :       FMEMZERO((void FAR *) buffer,</span>
+<span class="lineNum">     736 </span>            :                (size_t) (D_MAX_BLOCKS_IN_MCU * SIZEOF(JBLOCK)));
+<span class="lineNum">     737 </span><span class="lineNoCov">          0 :     coef-&gt;pub.consume_data = dummy_consume_data;</span>
+<span class="lineNum">     738 </span><span class="lineNoCov">          0 :     coef-&gt;pub.decompress_data = decompress_onepass;</span>
+<span class="lineNum">     739 </span><span class="lineNoCov">          0 :     coef-&gt;pub.coef_arrays = NULL; /* flag for no virtual arrays */</span>
+<span class="lineNum">     740 </span>            :   }
+<span class="lineNum">     741 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

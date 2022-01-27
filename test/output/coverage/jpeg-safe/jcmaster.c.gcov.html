@@ -1,0 +1,753 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - jpeg-safe/jcmaster.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">jpeg-safe</a> - jcmaster.c<span style="font-size: 80%;"> (source / <a href="jcmaster.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">318</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2020-11-24 12:24:12</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">9</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * jcmaster.c
+<span class="lineNum">       3 </span>            :  *
+<span class="lineNum">       4 </span>            :  * Copyright (C) 1991-1997, Thomas G. Lane.
+<span class="lineNum">       5 </span>            :  * Modified 2003-2019 by Guido Vollbeding.
+<span class="lineNum">       6 </span>            :  * This file is part of the Independent JPEG Group's software.
+<span class="lineNum">       7 </span>            :  * For conditions of distribution and use, see the accompanying README file.
+<span class="lineNum">       8 </span>            :  *
+<span class="lineNum">       9 </span>            :  * This file contains master control logic for the JPEG compressor.
+<span class="lineNum">      10 </span>            :  * These routines are concerned with parameter validation, initial setup,
+<span class="lineNum">      11 </span>            :  * and inter-pass control (determining the number of passes and the work 
+<span class="lineNum">      12 </span>            :  * to be done in each pass).
+<span class="lineNum">      13 </span>            :  */
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            : #define JPEG_INTERNALS
+<span class="lineNum">      16 </span>            : #include &quot;jinclude.h&quot;
+<span class="lineNum">      17 </span>            : #include &quot;jpeglib.h&quot;
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            : /* Private state */
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : typedef enum {
+<span class="lineNum">      23 </span>            :         main_pass,              /* input data, also do first output step */
+<span class="lineNum">      24 </span>            :         huff_opt_pass,          /* Huffman code optimization pass */
+<span class="lineNum">      25 </span>            :         output_pass             /* data output pass */
+<span class="lineNum">      26 </span>            : } c_pass_type;
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            : typedef struct {
+<span class="lineNum">      29 </span>            :   struct jpeg_comp_master pub;  /* public fields */
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            :   c_pass_type pass_type;        /* the type of the current pass */
+<span class="lineNum">      32 </span>            : 
+<span class="lineNum">      33 </span>            :   int pass_number;              /* # of passes completed */
+<span class="lineNum">      34 </span>            :   int total_passes;             /* total # of passes needed */
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span>            :   int scan_number;              /* current index in scan_info[] */
+<span class="lineNum">      37 </span>            : } my_comp_master;
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span>            : typedef my_comp_master * my_master_ptr;
+<span class="lineNum">      40 </span>            : 
+<span class="lineNum">      41 </span>            : 
+<span class="lineNum">      42 </span>            : /*
+<span class="lineNum">      43 </span>            :  * Support routines that do various essential calculations.
+<span class="lineNum">      44 </span>            :  */
+<a name="45"><span class="lineNum">      45 </span>            : </a>
+<span class="lineNum">      46 </span>            : LOCAL(void)
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 : initial_setup (j_compress_ptr cinfo)</span>
+<span class="lineNum">      48 </span>            : /* Do computations that are needed before master selection phase */
+<span class="lineNum">      49 </span>            : {
+<span class="lineNum">      50 </span>            :   int ci, ssize;
+<span class="lineNum">      51 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">      52 </span>            : 
+<span class="lineNum">      53 </span>            :   /* Sanity check on block_size */
+<span class="lineNum">      54 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;block_size &lt; 1 || cinfo-&gt;block_size &gt; 16)</span>
+<span class="lineNum">      55 </span><span class="lineNoCov">          0 :     ERREXIT2(cinfo, JERR_BAD_DCTSIZE, cinfo-&gt;block_size, cinfo-&gt;block_size);</span>
+<span class="lineNum">      56 </span>            : 
+<span class="lineNum">      57 </span>            :   /* Derive natural_order from block_size */
+<span class="lineNum">      58 </span><span class="lineNoCov">          0 :   switch (cinfo-&gt;block_size) {</span>
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :   case 2: cinfo-&gt;natural_order = jpeg_natural_order2; break;</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :   case 3: cinfo-&gt;natural_order = jpeg_natural_order3; break;</span>
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :   case 4: cinfo-&gt;natural_order = jpeg_natural_order4; break;</span>
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :   case 5: cinfo-&gt;natural_order = jpeg_natural_order5; break;</span>
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :   case 6: cinfo-&gt;natural_order = jpeg_natural_order6; break;</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :   case 7: cinfo-&gt;natural_order = jpeg_natural_order7; break;</span>
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :   default: cinfo-&gt;natural_order = jpeg_natural_order;</span>
+<span class="lineNum">      66 </span>            :   }
+<span class="lineNum">      67 </span>            : 
+<span class="lineNum">      68 </span>            :   /* Derive lim_Se from block_size */
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :   cinfo-&gt;lim_Se = cinfo-&gt;block_size &lt; DCTSIZE ?</span>
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :     cinfo-&gt;block_size * cinfo-&gt;block_size - 1 : DCTSIZE2-1;</span>
+<span class="lineNum">      71 </span>            : 
+<span class="lineNum">      72 </span>            :   /* Sanity check on image dimensions */
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;jpeg_height &lt;= 0 || cinfo-&gt;jpeg_width &lt;= 0 ||</span>
+<span class="lineNum">      74 </span><span class="lineNoCov">          0 :       cinfo-&gt;num_components &lt;= 0)</span>
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :     ERREXIT(cinfo, JERR_EMPTY_IMAGE);</span>
+<span class="lineNum">      76 </span>            : 
+<span class="lineNum">      77 </span>            :   /* Make sure image isn't bigger than I can handle */
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :   if ((long) cinfo-&gt;jpeg_height &gt; (long) JPEG_MAX_DIMENSION ||</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :       (long) cinfo-&gt;jpeg_width &gt; (long) JPEG_MAX_DIMENSION)</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :     ERREXIT1(cinfo, JERR_IMAGE_TOO_BIG, (unsigned int) JPEG_MAX_DIMENSION);</span>
+<span class="lineNum">      81 </span>            : 
+<span class="lineNum">      82 </span>            :   /* Only 8 to 12 bits data precision are supported for DCT based JPEG */
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;data_precision &lt; 8 || cinfo-&gt;data_precision &gt; 12)</span>
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :     ERREXIT1(cinfo, JERR_BAD_PRECISION, cinfo-&gt;data_precision);</span>
+<span class="lineNum">      85 </span>            : 
+<span class="lineNum">      86 </span>            :   /* Check that number of components won't exceed internal array sizes */
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;num_components &gt; MAX_COMPONENTS)</span>
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :     ERREXIT2(cinfo, JERR_COMPONENT_COUNT, cinfo-&gt;num_components,</span>
+<span class="lineNum">      89 </span>            :              MAX_COMPONENTS);
+<span class="lineNum">      90 </span>            : 
+<span class="lineNum">      91 </span>            :   /* Compute maximum sampling factors; check factor validity */
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :   cinfo-&gt;max_h_samp_factor = 1;</span>
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :   cinfo-&gt;max_v_samp_factor = 1;</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :   for (ci = 0, compptr = cinfo-&gt;comp_info; ci &lt; cinfo-&gt;num_components;</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :        ci++, compptr++) {</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :     if (compptr-&gt;h_samp_factor&lt;=0 || compptr-&gt;h_samp_factor&gt;MAX_SAMP_FACTOR ||</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :         compptr-&gt;v_samp_factor&lt;=0 || compptr-&gt;v_samp_factor&gt;MAX_SAMP_FACTOR)</span>
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :       ERREXIT(cinfo, JERR_BAD_SAMPLING);</span>
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :     cinfo-&gt;max_h_samp_factor = MAX(cinfo-&gt;max_h_samp_factor,</span>
+<span class="lineNum">     100 </span>            :                                    compptr-&gt;h_samp_factor);
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :     cinfo-&gt;max_v_samp_factor = MAX(cinfo-&gt;max_v_samp_factor,</span>
+<span class="lineNum">     102 </span>            :                                    compptr-&gt;v_samp_factor);
+<span class="lineNum">     103 </span>            :   }
+<span class="lineNum">     104 </span>            : 
+<span class="lineNum">     105 </span>            :   /* Compute dimensions of components */
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :   for (ci = 0, compptr = cinfo-&gt;comp_info; ci &lt; cinfo-&gt;num_components;</span>
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :        ci++, compptr++) {</span>
+<span class="lineNum">     108 </span>            :     /* Fill in the correct component_index value; don't rely on application */
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :     compptr-&gt;component_index = ci;</span>
+<span class="lineNum">     110 </span>            :     /* In selecting the actual DCT scaling for each component, we try to
+<span class="lineNum">     111 </span>            :      * scale down the chroma components via DCT scaling rather than downsampling.
+<span class="lineNum">     112 </span>            :      * This saves time if the downsampler gets to use 1:1 scaling.
+<span class="lineNum">     113 </span>            :      * Note this code adapts subsampling ratios which are powers of 2.
+<span class="lineNum">     114 </span>            :      */
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :     ssize = 1;</span>
+<span class="lineNum">     116 </span>            : #ifdef DCT_SCALING_SUPPORTED
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :     if (! cinfo-&gt;raw_data_in)</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :       while (cinfo-&gt;min_DCT_h_scaled_size * ssize &lt;=</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :              (cinfo-&gt;do_fancy_downsampling ? DCTSIZE : DCTSIZE / 2) &amp;&amp;</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :              (cinfo-&gt;max_h_samp_factor % (compptr-&gt;h_samp_factor * ssize * 2)) ==</span>
+<span class="lineNum">     121 </span>            :              0) {
+<span class="lineNum">     122 </span><span class="lineNoCov">          0 :         ssize = ssize * 2;</span>
+<span class="lineNum">     123 </span>            :       }
+<span class="lineNum">     124 </span>            : #endif
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :     compptr-&gt;DCT_h_scaled_size = cinfo-&gt;min_DCT_h_scaled_size * ssize;</span>
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     ssize = 1;</span>
+<span class="lineNum">     127 </span>            : #ifdef DCT_SCALING_SUPPORTED
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     if (! cinfo-&gt;raw_data_in)</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :       while (cinfo-&gt;min_DCT_v_scaled_size * ssize &lt;=</span>
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :              (cinfo-&gt;do_fancy_downsampling ? DCTSIZE : DCTSIZE / 2) &amp;&amp;</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :              (cinfo-&gt;max_v_samp_factor % (compptr-&gt;v_samp_factor * ssize * 2)) ==</span>
+<span class="lineNum">     132 </span>            :              0) {
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :         ssize = ssize * 2;</span>
+<span class="lineNum">     134 </span>            :       }
+<span class="lineNum">     135 </span>            : #endif
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     compptr-&gt;DCT_v_scaled_size = cinfo-&gt;min_DCT_v_scaled_size * ssize;</span>
+<span class="lineNum">     137 </span>            : 
+<span class="lineNum">     138 </span>            :     /* We don't support DCT ratios larger than 2. */
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :     if (compptr-&gt;DCT_h_scaled_size &gt; compptr-&gt;DCT_v_scaled_size * 2)</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :         compptr-&gt;DCT_h_scaled_size = compptr-&gt;DCT_v_scaled_size * 2;</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :     else if (compptr-&gt;DCT_v_scaled_size &gt; compptr-&gt;DCT_h_scaled_size * 2)</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :         compptr-&gt;DCT_v_scaled_size = compptr-&gt;DCT_h_scaled_size * 2;</span>
+<span class="lineNum">     143 </span>            : 
+<span class="lineNum">     144 </span>            :     /* Size in DCT blocks */
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :     compptr-&gt;width_in_blocks = (JDIMENSION)</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;jpeg_width * (long) compptr-&gt;h_samp_factor,</span>
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :                     (long) (cinfo-&gt;max_h_samp_factor * cinfo-&gt;block_size));</span>
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     compptr-&gt;height_in_blocks = (JDIMENSION)</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;jpeg_height * (long) compptr-&gt;v_samp_factor,</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :                     (long) (cinfo-&gt;max_v_samp_factor * cinfo-&gt;block_size));</span>
+<span class="lineNum">     151 </span>            :     /* Size in samples */
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :     compptr-&gt;downsampled_width = (JDIMENSION)</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;jpeg_width *</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :                     (long) (compptr-&gt;h_samp_factor * compptr-&gt;DCT_h_scaled_size),</span>
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :                     (long) (cinfo-&gt;max_h_samp_factor * cinfo-&gt;block_size));</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :     compptr-&gt;downsampled_height = (JDIMENSION)</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;jpeg_height *</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :                     (long) (compptr-&gt;v_samp_factor * compptr-&gt;DCT_v_scaled_size),</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :                     (long) (cinfo-&gt;max_v_samp_factor * cinfo-&gt;block_size));</span>
+<span class="lineNum">     160 </span>            :     /* Don't need quantization scale after DCT,
+<span class="lineNum">     161 </span>            :      * until color conversion says otherwise.
+<span class="lineNum">     162 </span>            :      */
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :     compptr-&gt;component_needed = FALSE;</span>
+<span class="lineNum">     164 </span>            :   }
+<span class="lineNum">     165 </span>            : 
+<span class="lineNum">     166 </span>            :   /* Compute number of fully interleaved MCU rows (number of times that
+<span class="lineNum">     167 </span>            :    * main controller will call coefficient controller).
+<span class="lineNum">     168 </span>            :    */
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :   cinfo-&gt;total_iMCU_rows = (JDIMENSION)</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :     jdiv_round_up((long) cinfo-&gt;jpeg_height,</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :                   (long) (cinfo-&gt;max_v_samp_factor * cinfo-&gt;block_size));</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     173 </span>            : 
+<span class="lineNum">     174 </span>            : 
+<span class="lineNum">     175 </span>            : #ifdef C_MULTISCAN_FILES_SUPPORTED
+<a name="176"><span class="lineNum">     176 </span>            : </a>
+<span class="lineNum">     177 </span>            : LOCAL(void)
+<span class="lineNum">     178 </span><span class="lineNoCov">          0 : validate_script (j_compress_ptr cinfo)</span>
+<span class="lineNum">     179 </span>            : /* Verify that the scan script in cinfo-&gt;scan_info[] is valid; also
+<span class="lineNum">     180 </span>            :  * determine whether it uses progressive JPEG, and set cinfo-&gt;progressive_mode.
+<span class="lineNum">     181 </span>            :  */
+<span class="lineNum">     182 </span>            : {
+<span class="lineNum">     183 </span>            :   const jpeg_scan_info * scanptr;
+<span class="lineNum">     184 </span>            :   int scanno, ncomps, ci, coefi, thisi;
+<span class="lineNum">     185 </span>            :   int Ss, Se, Ah, Al;
+<span class="lineNum">     186 </span>            :   boolean component_sent[MAX_COMPONENTS];
+<span class="lineNum">     187 </span>            : #ifdef C_PROGRESSIVE_SUPPORTED
+<span class="lineNum">     188 </span>            :   int * last_bitpos_ptr;
+<span class="lineNum">     189 </span>            :   int last_bitpos[MAX_COMPONENTS][DCTSIZE2];
+<span class="lineNum">     190 </span>            :   /* -1 until that coefficient has been seen; then last Al for it */
+<span class="lineNum">     191 </span>            : #endif
+<span class="lineNum">     192 </span>            : 
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;num_scans &lt;= 0)</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :     ERREXIT1(cinfo, JERR_BAD_SCAN_SCRIPT, 0);</span>
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span>            :   /* For sequential JPEG, all scans must have Ss=0, Se=DCTSIZE2-1;
+<span class="lineNum">     197 </span>            :    * for progressive JPEG, no scan can have this.
+<span class="lineNum">     198 </span>            :    */
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :   scanptr = cinfo-&gt;scan_info;</span>
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :   if (scanptr-&gt;Ss != 0 || scanptr-&gt;Se != DCTSIZE2-1) {</span>
+<span class="lineNum">     201 </span>            : #ifdef C_PROGRESSIVE_SUPPORTED
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :     cinfo-&gt;progressive_mode = TRUE;</span>
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :     last_bitpos_ptr = &amp; last_bitpos[0][0];</span>
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     for (ci = 0; ci &lt; cinfo-&gt;num_components; ci++) </span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :       for (coefi = 0; coefi &lt; DCTSIZE2; coefi++)</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :         *last_bitpos_ptr++ = -1;</span>
+<span class="lineNum">     207 </span>            : #else
+<span class="lineNum">     208 </span>            :     ERREXIT(cinfo, JERR_NOT_COMPILED);
+<span class="lineNum">     209 </span>            : #endif
+<span class="lineNum">     210 </span>            :   } else {
+<span class="lineNum">     211 </span><span class="lineNoCov">          0 :     cinfo-&gt;progressive_mode = FALSE;</span>
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :     for (ci = 0; ci &lt; cinfo-&gt;num_components; ci++) </span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :       component_sent[ci] = FALSE;</span>
+<span class="lineNum">     214 </span>            :   }
+<span class="lineNum">     215 </span>            : 
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :   for (scanno = 1; scanno &lt;= cinfo-&gt;num_scans; scanptr++, scanno++) {</span>
+<span class="lineNum">     217 </span>            :     /* Validate component indexes */
+<span class="lineNum">     218 </span><span class="lineNoCov">          0 :     ncomps = scanptr-&gt;comps_in_scan;</span>
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :     if (ncomps &lt;= 0 || ncomps &gt; MAX_COMPS_IN_SCAN)</span>
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :       ERREXIT2(cinfo, JERR_COMPONENT_COUNT, ncomps, MAX_COMPS_IN_SCAN);</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :     for (ci = 0; ci &lt; ncomps; ci++) {</span>
+<span class="lineNum">     222 </span><span class="lineNoCov">          0 :       thisi = scanptr-&gt;component_index[ci];</span>
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :       if (thisi &lt; 0 || thisi &gt;= cinfo-&gt;num_components)</span>
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :         ERREXIT1(cinfo, JERR_BAD_SCAN_SCRIPT, scanno);</span>
+<span class="lineNum">     225 </span>            :       /* Components must appear in SOF order within each scan */
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :       if (ci &gt; 0 &amp;&amp; thisi &lt;= scanptr-&gt;component_index[ci-1])</span>
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :         ERREXIT1(cinfo, JERR_BAD_SCAN_SCRIPT, scanno);</span>
+<span class="lineNum">     228 </span>            :     }
+<span class="lineNum">     229 </span>            :     /* Validate progression parameters */
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :     Ss = scanptr-&gt;Ss;</span>
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :     Se = scanptr-&gt;Se;</span>
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :     Ah = scanptr-&gt;Ah;</span>
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :     Al = scanptr-&gt;Al;</span>
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;progressive_mode) {</span>
+<span class="lineNum">     235 </span>            : #ifdef C_PROGRESSIVE_SUPPORTED
+<span class="lineNum">     236 </span>            :       /* The JPEG spec simply gives the ranges 0..13 for Ah and Al, but that
+<span class="lineNum">     237 </span>            :        * seems wrong: the upper bound ought to depend on data precision.
+<span class="lineNum">     238 </span>            :        * Perhaps they really meant 0..N+1 for N-bit precision.
+<span class="lineNum">     239 </span>            :        * Here we allow 0..10 for 8-bit data; Al larger than 10 results in
+<span class="lineNum">     240 </span>            :        * out-of-range reconstructed DC values during the first DC scan,
+<span class="lineNum">     241 </span>            :        * which might cause problems for some decoders.
+<span class="lineNum">     242 </span>            :        */
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :       if (Ss &lt; 0 || Ss &gt;= DCTSIZE2 || Se &lt; Ss || Se &gt;= DCTSIZE2 ||</span>
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :           Ah &lt; 0 || Ah &gt; (cinfo-&gt;data_precision &gt; 8 ? 13 : 10) ||</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :           Al &lt; 0 || Al &gt; (cinfo-&gt;data_precision &gt; 8 ? 13 : 10))</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :         ERREXIT1(cinfo, JERR_BAD_PROG_SCRIPT, scanno);</span>
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :       if (Ss == 0) {</span>
+<span class="lineNum">     248 </span><span class="lineNoCov">          0 :         if (Se != 0)            /* DC and AC together not OK */</span>
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :           ERREXIT1(cinfo, JERR_BAD_PROG_SCRIPT, scanno);</span>
+<span class="lineNum">     250 </span>            :       } else {
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :         if (ncomps != 1)        /* AC scans must be for only one component */</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :           ERREXIT1(cinfo, JERR_BAD_PROG_SCRIPT, scanno);</span>
+<span class="lineNum">     253 </span>            :       }
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :       for (ci = 0; ci &lt; ncomps; ci++) {</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :         last_bitpos_ptr = &amp; last_bitpos[scanptr-&gt;component_index[ci]][0];</span>
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :         if (Ss != 0 &amp;&amp; last_bitpos_ptr[0] &lt; 0) /* AC without prior DC scan */</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :           ERREXIT1(cinfo, JERR_BAD_PROG_SCRIPT, scanno);</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :         for (coefi = Ss; coefi &lt;= Se; coefi++) {</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :           if (last_bitpos_ptr[coefi] &lt; 0) {</span>
+<span class="lineNum">     260 </span>            :             /* first scan of this coefficient */
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :             if (Ah != 0)</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :               ERREXIT1(cinfo, JERR_BAD_PROG_SCRIPT, scanno);</span>
+<span class="lineNum">     263 </span>            :           } else {
+<span class="lineNum">     264 </span>            :             /* not first scan */
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :             if (Ah != last_bitpos_ptr[coefi] || Al != Ah-1)</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :               ERREXIT1(cinfo, JERR_BAD_PROG_SCRIPT, scanno);</span>
+<span class="lineNum">     267 </span>            :           }
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :           last_bitpos_ptr[coefi] = Al;</span>
+<span class="lineNum">     269 </span>            :         }
+<span class="lineNum">     270 </span>            :       }
+<span class="lineNum">     271 </span>            : #endif
+<span class="lineNum">     272 </span>            :     } else {
+<span class="lineNum">     273 </span>            :       /* For sequential JPEG, all progression parameters must be these: */
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :       if (Ss != 0 || Se != DCTSIZE2-1 || Ah != 0 || Al != 0)</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :         ERREXIT1(cinfo, JERR_BAD_PROG_SCRIPT, scanno);</span>
+<span class="lineNum">     276 </span>            :       /* Make sure components are not sent twice */
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :       for (ci = 0; ci &lt; ncomps; ci++) {</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :         thisi = scanptr-&gt;component_index[ci];</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :         if (component_sent[thisi])</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :           ERREXIT1(cinfo, JERR_BAD_SCAN_SCRIPT, scanno);</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :         component_sent[thisi] = TRUE;</span>
+<span class="lineNum">     282 </span>            :       }
+<span class="lineNum">     283 </span>            :     }
+<span class="lineNum">     284 </span>            :   }
+<span class="lineNum">     285 </span>            : 
+<span class="lineNum">     286 </span>            :   /* Now verify that everything got sent. */
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;progressive_mode) {</span>
+<span class="lineNum">     288 </span>            : #ifdef C_PROGRESSIVE_SUPPORTED
+<span class="lineNum">     289 </span>            :     /* For progressive mode, we only check that at least some DC data
+<span class="lineNum">     290 </span>            :      * got sent for each component; the spec does not require that all bits
+<span class="lineNum">     291 </span>            :      * of all coefficients be transmitted.  Would it be wiser to enforce
+<span class="lineNum">     292 </span>            :      * transmission of all coefficient bits??
+<span class="lineNum">     293 </span>            :      */
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :     for (ci = 0; ci &lt; cinfo-&gt;num_components; ci++) {</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :       if (last_bitpos[ci][0] &lt; 0)</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :         ERREXIT(cinfo, JERR_MISSING_DATA);</span>
+<span class="lineNum">     297 </span>            :     }
+<span class="lineNum">     298 </span>            : #endif
+<span class="lineNum">     299 </span>            :   } else {
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :     for (ci = 0; ci &lt; cinfo-&gt;num_components; ci++) {</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :       if (! component_sent[ci])</span>
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :         ERREXIT(cinfo, JERR_MISSING_DATA);</span>
+<span class="lineNum">     303 </span>            :     }
+<span class="lineNum">     304 </span>            :   }
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     306 </span>            : 
+<a name="307"><span class="lineNum">     307 </span>            : </a>
+<span class="lineNum">     308 </span>            : LOCAL(void)
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 : reduce_script (j_compress_ptr cinfo)</span>
+<span class="lineNum">     310 </span>            : /* Adapt scan script for use with reduced block size;
+<span class="lineNum">     311 </span>            :  * assume that script has been validated before.
+<span class="lineNum">     312 </span>            :  */
+<span class="lineNum">     313 </span>            : {
+<span class="lineNum">     314 </span>            :   jpeg_scan_info * scanptr;
+<span class="lineNum">     315 </span>            :   int idxout, idxin;
+<span class="lineNum">     316 </span>            : 
+<span class="lineNum">     317 </span>            :   /* Circumvent const declaration for this function */
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :   scanptr = (jpeg_scan_info *) cinfo-&gt;scan_info;</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :   idxout = 0;</span>
+<span class="lineNum">     320 </span>            : 
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :   for (idxin = 0; idxin &lt; cinfo-&gt;num_scans; idxin++) {</span>
+<span class="lineNum">     322 </span>            :     /* After skipping, idxout becomes smaller than idxin */
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :     if (idxin != idxout)</span>
+<span class="lineNum">     324 </span>            :       /* Copy rest of data;
+<span class="lineNum">     325 </span>            :        * note we stay in given chunk of allocated memory.
+<span class="lineNum">     326 </span>            :        */
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :       scanptr[idxout] = scanptr[idxin];</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :     if (scanptr[idxout].Ss &gt; cinfo-&gt;lim_Se)</span>
+<span class="lineNum">     329 </span>            :       /* Entire scan out of range - skip this entry */
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :       continue;</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :     if (scanptr[idxout].Se &gt; cinfo-&gt;lim_Se)</span>
+<span class="lineNum">     332 </span>            :       /* Limit scan to end of block */
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :       scanptr[idxout].Se = cinfo-&gt;lim_Se;</span>
+<span class="lineNum">     334 </span><span class="lineNoCov">          0 :     idxout++;</span>
+<span class="lineNum">     335 </span>            :   }
+<span class="lineNum">     336 </span>            : 
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :   cinfo-&gt;num_scans = idxout;</span>
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     339 </span>            : 
+<span class="lineNum">     340 </span>            : #endif /* C_MULTISCAN_FILES_SUPPORTED */
+<span class="lineNum">     341 </span>            : 
+<a name="342"><span class="lineNum">     342 </span>            : </a>
+<span class="lineNum">     343 </span>            : LOCAL(void)
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 : select_scan_parameters (j_compress_ptr cinfo)</span>
+<span class="lineNum">     345 </span>            : /* Set up the scan parameters for the current scan */
+<span class="lineNum">     346 </span>            : {
+<span class="lineNum">     347 </span>            :   int ci;
+<span class="lineNum">     348 </span>            : 
+<span class="lineNum">     349 </span>            : #ifdef C_MULTISCAN_FILES_SUPPORTED
+<span class="lineNum">     350 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;scan_info != NULL) {</span>
+<span class="lineNum">     351 </span>            :     /* Prepare for current scan --- the script is already validated */
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :     my_master_ptr master = (my_master_ptr) cinfo-&gt;master;</span>
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :     const jpeg_scan_info * scanptr = cinfo-&gt;scan_info + master-&gt;scan_number;</span>
+<span class="lineNum">     354 </span>            : 
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :     cinfo-&gt;comps_in_scan = scanptr-&gt;comps_in_scan;</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :     for (ci = 0; ci &lt; scanptr-&gt;comps_in_scan; ci++) {</span>
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :       cinfo-&gt;cur_comp_info[ci] =</span>
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :         &amp;cinfo-&gt;comp_info[scanptr-&gt;component_index[ci]];</span>
+<span class="lineNum">     359 </span>            :     }
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;progressive_mode) {</span>
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :       cinfo-&gt;Ss = scanptr-&gt;Ss;</span>
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :       cinfo-&gt;Se = scanptr-&gt;Se;</span>
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :       cinfo-&gt;Ah = scanptr-&gt;Ah;</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :       cinfo-&gt;Al = scanptr-&gt;Al;</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :       return;</span>
+<span class="lineNum">     366 </span>            :     }
+<span class="lineNum">     367 </span>            :   }
+<span class="lineNum">     368 </span>            :   else
+<span class="lineNum">     369 </span>            : #endif
+<span class="lineNum">     370 </span>            :   {
+<span class="lineNum">     371 </span>            :     /* Prepare for single sequential-JPEG scan containing all components */
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;num_components &gt; MAX_COMPS_IN_SCAN)</span>
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 :       ERREXIT2(cinfo, JERR_COMPONENT_COUNT, cinfo-&gt;num_components,</span>
+<span class="lineNum">     374 </span>            :                MAX_COMPS_IN_SCAN);
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :     cinfo-&gt;comps_in_scan = cinfo-&gt;num_components;</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     for (ci = 0; ci &lt; cinfo-&gt;num_components; ci++) {</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :       cinfo-&gt;cur_comp_info[ci] = &amp;cinfo-&gt;comp_info[ci];</span>
+<span class="lineNum">     378 </span>            :     }
+<span class="lineNum">     379 </span>            :   }
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :   cinfo-&gt;Ss = 0;</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :   cinfo-&gt;Se = cinfo-&gt;block_size * cinfo-&gt;block_size - 1;</span>
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :   cinfo-&gt;Ah = 0;</span>
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :   cinfo-&gt;Al = 0;</span>
+<span class="lineNum">     384 </span>            : }
+<span class="lineNum">     385 </span>            : 
+<a name="386"><span class="lineNum">     386 </span>            : </a>
+<span class="lineNum">     387 </span>            : LOCAL(void)
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 : per_scan_setup (j_compress_ptr cinfo)</span>
+<span class="lineNum">     389 </span>            : /* Do computations that are needed before processing a JPEG scan */
+<span class="lineNum">     390 </span>            : /* cinfo-&gt;comps_in_scan and cinfo-&gt;cur_comp_info[] are already set */
+<span class="lineNum">     391 </span>            : {
+<span class="lineNum">     392 </span>            :   int ci, mcublks, tmp;
+<span class="lineNum">     393 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     394 </span>            :   
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;comps_in_scan == 1) {</span>
+<span class="lineNum">     396 </span>            :     
+<span class="lineNum">     397 </span>            :     /* Noninterleaved (single-component) scan */
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :     compptr = cinfo-&gt;cur_comp_info[0];</span>
+<span class="lineNum">     399 </span>            :     
+<span class="lineNum">     400 </span>            :     /* Overall image size in MCUs */
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :     cinfo-&gt;MCUs_per_row = compptr-&gt;width_in_blocks;</span>
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :     cinfo-&gt;MCU_rows_in_scan = compptr-&gt;height_in_blocks;</span>
+<span class="lineNum">     403 </span>            :     
+<span class="lineNum">     404 </span>            :     /* For noninterleaved scan, always one block per MCU */
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :     compptr-&gt;MCU_width = 1;</span>
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :     compptr-&gt;MCU_height = 1;</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :     compptr-&gt;MCU_blocks = 1;</span>
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :     compptr-&gt;MCU_sample_width = compptr-&gt;DCT_h_scaled_size;</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     compptr-&gt;last_col_width = 1;</span>
+<span class="lineNum">     410 </span>            :     /* For noninterleaved scans, it is convenient to define last_row_height
+<span class="lineNum">     411 </span>            :      * as the number of block rows present in the last iMCU row.
+<span class="lineNum">     412 </span>            :      */
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :     tmp = (int) (compptr-&gt;height_in_blocks % compptr-&gt;v_samp_factor);</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :     if (tmp == 0) tmp = compptr-&gt;v_samp_factor;</span>
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :     compptr-&gt;last_row_height = tmp;</span>
+<span class="lineNum">     416 </span>            :     
+<span class="lineNum">     417 </span>            :     /* Prepare array describing MCU composition */
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :     cinfo-&gt;blocks_in_MCU = 1;</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :     cinfo-&gt;MCU_membership[0] = 0;</span>
+<span class="lineNum">     420 </span>            :     
+<span class="lineNum">     421 </span>            :   } else {
+<span class="lineNum">     422 </span>            :     
+<span class="lineNum">     423 </span>            :     /* Interleaved (multi-component) scan */
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;comps_in_scan &lt;= 0 || cinfo-&gt;comps_in_scan &gt; MAX_COMPS_IN_SCAN)</span>
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :       ERREXIT2(cinfo, JERR_COMPONENT_COUNT, cinfo-&gt;comps_in_scan,</span>
+<span class="lineNum">     426 </span>            :                MAX_COMPS_IN_SCAN);
+<span class="lineNum">     427 </span>            :     
+<span class="lineNum">     428 </span>            :     /* Overall image size in MCUs */
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :     cinfo-&gt;MCUs_per_row = (JDIMENSION)</span>
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;jpeg_width,</span>
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :                     (long) (cinfo-&gt;max_h_samp_factor * cinfo-&gt;block_size));</span>
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :     cinfo-&gt;MCU_rows_in_scan = (JDIMENSION)</span>
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;jpeg_height,</span>
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :                     (long) (cinfo-&gt;max_v_samp_factor * cinfo-&gt;block_size));</span>
+<span class="lineNum">     435 </span>            :     
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :     cinfo-&gt;blocks_in_MCU = 0;</span>
+<span class="lineNum">     437 </span>            :     
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :     for (ci = 0; ci &lt; cinfo-&gt;comps_in_scan; ci++) {</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :       compptr = cinfo-&gt;cur_comp_info[ci];</span>
+<span class="lineNum">     440 </span>            :       /* Sampling factors give # of blocks of component in each MCU */
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :       compptr-&gt;MCU_width = compptr-&gt;h_samp_factor;</span>
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :       compptr-&gt;MCU_height = compptr-&gt;v_samp_factor;</span>
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :       compptr-&gt;MCU_blocks = compptr-&gt;MCU_width * compptr-&gt;MCU_height;</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :       compptr-&gt;MCU_sample_width = compptr-&gt;MCU_width * compptr-&gt;DCT_h_scaled_size;</span>
+<span class="lineNum">     445 </span>            :       /* Figure number of non-dummy blocks in last MCU column &amp; row */
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :       tmp = (int) (compptr-&gt;width_in_blocks % compptr-&gt;MCU_width);</span>
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :       if (tmp == 0) tmp = compptr-&gt;MCU_width;</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :       compptr-&gt;last_col_width = tmp;</span>
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :       tmp = (int) (compptr-&gt;height_in_blocks % compptr-&gt;MCU_height);</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :       if (tmp == 0) tmp = compptr-&gt;MCU_height;</span>
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :       compptr-&gt;last_row_height = tmp;</span>
+<span class="lineNum">     452 </span>            :       /* Prepare array describing MCU composition */
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :       mcublks = compptr-&gt;MCU_blocks;</span>
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :       if (cinfo-&gt;blocks_in_MCU + mcublks &gt; C_MAX_BLOCKS_IN_MCU)</span>
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :         ERREXIT(cinfo, JERR_BAD_MCU_SIZE);</span>
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :       while (mcublks-- &gt; 0) {</span>
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :         cinfo-&gt;MCU_membership[cinfo-&gt;blocks_in_MCU++] = ci;</span>
+<span class="lineNum">     458 </span>            :       }
+<span class="lineNum">     459 </span>            :     }
+<span class="lineNum">     460 </span>            :     
+<span class="lineNum">     461 </span>            :   }
+<span class="lineNum">     462 </span>            : 
+<span class="lineNum">     463 </span>            :   /* Convert restart specified in rows to actual MCU count. */
+<span class="lineNum">     464 </span>            :   /* Note that count must fit in 16 bits, so we provide limiting. */
+<span class="lineNum">     465 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;restart_in_rows &gt; 0) {</span>
+<span class="lineNum">     466 </span><span class="lineNoCov">          0 :     long nominal = (long) cinfo-&gt;restart_in_rows * (long) cinfo-&gt;MCUs_per_row;</span>
+<span class="lineNum">     467 </span><span class="lineNoCov">          0 :     cinfo-&gt;restart_interval = (unsigned int) MIN(nominal, 65535L);</span>
+<span class="lineNum">     468 </span>            :   }
+<span class="lineNum">     469 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     470 </span>            : 
+<span class="lineNum">     471 </span>            : 
+<span class="lineNum">     472 </span>            : /*
+<span class="lineNum">     473 </span>            :  * Per-pass setup.
+<span class="lineNum">     474 </span>            :  * This is called at the beginning of each pass.  We determine which modules
+<span class="lineNum">     475 </span>            :  * will be active during this pass and give them appropriate start_pass calls.
+<span class="lineNum">     476 </span>            :  * We also set is_last_pass to indicate whether any more passes will be
+<span class="lineNum">     477 </span>            :  * required.
+<span class="lineNum">     478 </span>            :  */
+<a name="479"><span class="lineNum">     479 </span>            : </a>
+<span class="lineNum">     480 </span>            : METHODDEF(void)
+<span class="lineNum">     481 </span><span class="lineNoCov">          0 : prepare_for_pass (j_compress_ptr cinfo)</span>
+<span class="lineNum">     482 </span>            : {
+<span class="lineNum">     483 </span><span class="lineNoCov">          0 :   my_master_ptr master = (my_master_ptr) cinfo-&gt;master;</span>
+<span class="lineNum">     484 </span>            : 
+<span class="lineNum">     485 </span><span class="lineNoCov">          0 :   switch (master-&gt;pass_type) {</span>
+<span class="lineNum">     486 </span><span class="lineNoCov">          0 :   case main_pass:</span>
+<span class="lineNum">     487 </span>            :     /* Initial pass: will collect input data, and do either Huffman
+<span class="lineNum">     488 </span>            :      * optimization or data output for the first scan.
+<span class="lineNum">     489 </span>            :      */
+<span class="lineNum">     490 </span><span class="lineNoCov">          0 :     select_scan_parameters(cinfo);</span>
+<span class="lineNum">     491 </span><span class="lineNoCov">          0 :     per_scan_setup(cinfo);</span>
+<span class="lineNum">     492 </span><span class="lineNoCov">          0 :     if (! cinfo-&gt;raw_data_in) {</span>
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 :       (*cinfo-&gt;cconvert-&gt;start_pass) (cinfo);</span>
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :       (*cinfo-&gt;downsample-&gt;start_pass) (cinfo);</span>
+<span class="lineNum">     495 </span><span class="lineNoCov">          0 :       (*cinfo-&gt;prep-&gt;start_pass) (cinfo, JBUF_PASS_THRU);</span>
+<span class="lineNum">     496 </span>            :     }
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;fdct-&gt;start_pass) (cinfo);</span>
+<span class="lineNum">     498 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;entropy-&gt;start_pass) (cinfo, cinfo-&gt;optimize_coding);</span>
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;coef-&gt;start_pass) (cinfo,</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :                                 (master-&gt;total_passes &gt; 1 ?</span>
+<span class="lineNum">     501 </span>            :                                  JBUF_SAVE_AND_PASS : JBUF_PASS_THRU));
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;main-&gt;start_pass) (cinfo, JBUF_PASS_THRU);</span>
+<span class="lineNum">     503 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;optimize_coding) {</span>
+<span class="lineNum">     504 </span>            :       /* No immediate data output; postpone writing frame/scan headers */
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :       master-&gt;pub.call_pass_startup = FALSE;</span>
+<span class="lineNum">     506 </span>            :     } else {
+<span class="lineNum">     507 </span>            :       /* Will write frame/scan headers at first jpeg_write_scanlines call */
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :       master-&gt;pub.call_pass_startup = TRUE;</span>
+<span class="lineNum">     509 </span>            :     }
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 :     break;</span>
+<span class="lineNum">     511 </span>            : #ifdef ENTROPY_OPT_SUPPORTED
+<span class="lineNum">     512 </span><span class="lineNoCov">          0 :   case huff_opt_pass:</span>
+<span class="lineNum">     513 </span>            :     /* Do Huffman optimization for a scan after the first one. */
+<span class="lineNum">     514 </span><span class="lineNoCov">          0 :     select_scan_parameters(cinfo);</span>
+<span class="lineNum">     515 </span><span class="lineNoCov">          0 :     per_scan_setup(cinfo);</span>
+<span class="lineNum">     516 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;Ss != 0 || cinfo-&gt;Ah == 0) {</span>
+<span class="lineNum">     517 </span><span class="lineNoCov">          0 :       (*cinfo-&gt;entropy-&gt;start_pass) (cinfo, TRUE);</span>
+<span class="lineNum">     518 </span><span class="lineNoCov">          0 :       (*cinfo-&gt;coef-&gt;start_pass) (cinfo, JBUF_CRANK_DEST);</span>
+<span class="lineNum">     519 </span><span class="lineNoCov">          0 :       master-&gt;pub.call_pass_startup = FALSE;</span>
+<span class="lineNum">     520 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     521 </span>            :     }
+<span class="lineNum">     522 </span>            :     /* Special case: Huffman DC refinement scans need no Huffman table
+<span class="lineNum">     523 </span>            :      * and therefore we can skip the optimization pass for them.
+<span class="lineNum">     524 </span>            :      */
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :     master-&gt;pass_type = output_pass;</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :     master-&gt;pass_number++;</span>
+<span class="lineNum">     527 </span>            :     /*FALLTHROUGH*/
+<span class="lineNum">     528 </span>            : #endif
+<span class="lineNum">     529 </span><span class="lineNoCov">          0 :   case output_pass:</span>
+<span class="lineNum">     530 </span>            :     /* Do a data-output pass. */
+<span class="lineNum">     531 </span>            :     /* We need not repeat per-scan setup if prior optimization pass did it. */
+<span class="lineNum">     532 </span><span class="lineNoCov">          0 :     if (! cinfo-&gt;optimize_coding) {</span>
+<span class="lineNum">     533 </span><span class="lineNoCov">          0 :       select_scan_parameters(cinfo);</span>
+<span class="lineNum">     534 </span><span class="lineNoCov">          0 :       per_scan_setup(cinfo);</span>
+<span class="lineNum">     535 </span>            :     }
+<span class="lineNum">     536 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;entropy-&gt;start_pass) (cinfo, FALSE);</span>
+<span class="lineNum">     537 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;coef-&gt;start_pass) (cinfo, JBUF_CRANK_DEST);</span>
+<span class="lineNum">     538 </span>            :     /* We emit frame/scan headers now */
+<span class="lineNum">     539 </span><span class="lineNoCov">          0 :     if (master-&gt;scan_number == 0)</span>
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 :       (*cinfo-&gt;marker-&gt;write_frame_header) (cinfo);</span>
+<span class="lineNum">     541 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;marker-&gt;write_scan_header) (cinfo);</span>
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 :     master-&gt;pub.call_pass_startup = FALSE;</span>
+<span class="lineNum">     543 </span><span class="lineNoCov">          0 :     break;</span>
+<span class="lineNum">     544 </span><span class="lineNoCov">          0 :   default:</span>
+<span class="lineNum">     545 </span><span class="lineNoCov">          0 :     ERREXIT(cinfo, JERR_NOT_COMPILED);</span>
+<span class="lineNum">     546 </span>            :   }
+<span class="lineNum">     547 </span>            : 
+<span class="lineNum">     548 </span><span class="lineNoCov">          0 :   master-&gt;pub.is_last_pass = (master-&gt;pass_number == master-&gt;total_passes-1);</span>
+<span class="lineNum">     549 </span>            : 
+<span class="lineNum">     550 </span>            :   /* Set up progress monitor's pass info if present */
+<span class="lineNum">     551 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;progress != NULL) {</span>
+<span class="lineNum">     552 </span><span class="lineNoCov">          0 :     cinfo-&gt;progress-&gt;completed_passes = master-&gt;pass_number;</span>
+<span class="lineNum">     553 </span><span class="lineNoCov">          0 :     cinfo-&gt;progress-&gt;total_passes = master-&gt;total_passes;</span>
+<span class="lineNum">     554 </span>            :   }
+<span class="lineNum">     555 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     556 </span>            : 
+<span class="lineNum">     557 </span>            : 
+<span class="lineNum">     558 </span>            : /*
+<span class="lineNum">     559 </span>            :  * Special start-of-pass hook.
+<span class="lineNum">     560 </span>            :  * This is called by jpeg_write_scanlines if call_pass_startup is TRUE.
+<span class="lineNum">     561 </span>            :  * In single-pass processing, we need this hook because we don't want to
+<span class="lineNum">     562 </span>            :  * write frame/scan headers during jpeg_start_compress; we want to let the
+<span class="lineNum">     563 </span>            :  * application write COM markers etc. between jpeg_start_compress and the
+<span class="lineNum">     564 </span>            :  * jpeg_write_scanlines loop.
+<span class="lineNum">     565 </span>            :  * In multi-pass processing, this routine is not used.
+<span class="lineNum">     566 </span>            :  */
+<a name="567"><span class="lineNum">     567 </span>            : </a>
+<span class="lineNum">     568 </span>            : METHODDEF(void)
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 : pass_startup (j_compress_ptr cinfo)</span>
+<span class="lineNum">     570 </span>            : {
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :   cinfo-&gt;master-&gt;call_pass_startup = FALSE; /* reset flag so call only once */</span>
+<span class="lineNum">     572 </span>            : 
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;marker-&gt;write_frame_header) (cinfo);</span>
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;marker-&gt;write_scan_header) (cinfo);</span>
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     576 </span>            : 
+<span class="lineNum">     577 </span>            : 
+<span class="lineNum">     578 </span>            : /*
+<span class="lineNum">     579 </span>            :  * Finish up at end of pass.
+<span class="lineNum">     580 </span>            :  */
+<a name="581"><span class="lineNum">     581 </span>            : </a>
+<span class="lineNum">     582 </span>            : METHODDEF(void)
+<span class="lineNum">     583 </span><span class="lineNoCov">          0 : finish_pass_master (j_compress_ptr cinfo)</span>
+<span class="lineNum">     584 </span>            : {
+<span class="lineNum">     585 </span><span class="lineNoCov">          0 :   my_master_ptr master = (my_master_ptr) cinfo-&gt;master;</span>
+<span class="lineNum">     586 </span>            : 
+<span class="lineNum">     587 </span>            :   /* The entropy coder always needs an end-of-pass call,
+<span class="lineNum">     588 </span>            :    * either to analyze statistics or to flush its output buffer.
+<span class="lineNum">     589 </span>            :    */
+<span class="lineNum">     590 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;entropy-&gt;finish_pass) (cinfo);</span>
+<span class="lineNum">     591 </span>            : 
+<span class="lineNum">     592 </span>            :   /* Update state for next pass */
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :   switch (master-&gt;pass_type) {</span>
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :   case main_pass:</span>
+<span class="lineNum">     595 </span>            :     /* next pass is either output of scan 0 (after optimization)
+<span class="lineNum">     596 </span>            :      * or output of scan 1 (if no optimization).
+<span class="lineNum">     597 </span>            :      */
+<span class="lineNum">     598 </span><span class="lineNoCov">          0 :     master-&gt;pass_type = output_pass;</span>
+<span class="lineNum">     599 </span><span class="lineNoCov">          0 :     if (! cinfo-&gt;optimize_coding)</span>
+<span class="lineNum">     600 </span><span class="lineNoCov">          0 :       master-&gt;scan_number++;</span>
+<span class="lineNum">     601 </span><span class="lineNoCov">          0 :     break;</span>
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :   case huff_opt_pass:</span>
+<span class="lineNum">     603 </span>            :     /* next pass is always output of current scan */
+<span class="lineNum">     604 </span><span class="lineNoCov">          0 :     master-&gt;pass_type = output_pass;</span>
+<span class="lineNum">     605 </span><span class="lineNoCov">          0 :     break;</span>
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :   case output_pass:</span>
+<span class="lineNum">     607 </span>            :     /* next pass is either optimization or output of next scan */
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;optimize_coding)</span>
+<span class="lineNum">     609 </span><span class="lineNoCov">          0 :       master-&gt;pass_type = huff_opt_pass;</span>
+<span class="lineNum">     610 </span><span class="lineNoCov">          0 :     master-&gt;scan_number++;</span>
+<span class="lineNum">     611 </span><span class="lineNoCov">          0 :     break;</span>
+<span class="lineNum">     612 </span>            :   }
+<span class="lineNum">     613 </span>            : 
+<span class="lineNum">     614 </span><span class="lineNoCov">          0 :   master-&gt;pass_number++;</span>
+<span class="lineNum">     615 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     616 </span>            : 
+<span class="lineNum">     617 </span>            : 
+<span class="lineNum">     618 </span>            : /*
+<span class="lineNum">     619 </span>            :  * Initialize master compression control.
+<span class="lineNum">     620 </span>            :  */
+<a name="621"><span class="lineNum">     621 </span>            : </a>
+<span class="lineNum">     622 </span>            : GLOBAL(void)
+<span class="lineNum">     623 </span><span class="lineNoCov">          0 : jinit_c_master_control (j_compress_ptr cinfo, boolean transcode_only)</span>
+<span class="lineNum">     624 </span>            : {
+<span class="lineNum">     625 </span>            :   my_master_ptr master;
+<span class="lineNum">     626 </span>            : 
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :   master = (my_master_ptr) (*cinfo-&gt;mem-&gt;alloc_small)</span>
+<span class="lineNum">     628 </span>            :     ((j_common_ptr) cinfo, JPOOL_IMAGE, SIZEOF(my_comp_master));
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 :   cinfo-&gt;master = &amp;master-&gt;pub;</span>
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :   master-&gt;pub.prepare_for_pass = prepare_for_pass;</span>
+<span class="lineNum">     631 </span><span class="lineNoCov">          0 :   master-&gt;pub.pass_startup = pass_startup;</span>
+<span class="lineNum">     632 </span><span class="lineNoCov">          0 :   master-&gt;pub.finish_pass = finish_pass_master;</span>
+<span class="lineNum">     633 </span><span class="lineNoCov">          0 :   master-&gt;pub.is_last_pass = FALSE;</span>
+<span class="lineNum">     634 </span>            : 
+<span class="lineNum">     635 </span>            :   /* Validate parameters, determine derived values */
+<span class="lineNum">     636 </span><span class="lineNoCov">          0 :   initial_setup(cinfo);</span>
+<span class="lineNum">     637 </span>            : 
+<span class="lineNum">     638 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;scan_info != NULL) {</span>
+<span class="lineNum">     639 </span>            : #ifdef C_MULTISCAN_FILES_SUPPORTED
+<span class="lineNum">     640 </span><span class="lineNoCov">          0 :     validate_script(cinfo);</span>
+<span class="lineNum">     641 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;block_size &lt; DCTSIZE)</span>
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 :       reduce_script(cinfo);</span>
+<span class="lineNum">     643 </span>            : #else
+<span class="lineNum">     644 </span>            :     ERREXIT(cinfo, JERR_NOT_COMPILED);
+<span class="lineNum">     645 </span>            : #endif
+<span class="lineNum">     646 </span>            :   } else {
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 :     cinfo-&gt;progressive_mode = FALSE;</span>
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :     cinfo-&gt;num_scans = 1;</span>
+<span class="lineNum">     649 </span>            :   }
+<span class="lineNum">     650 </span>            : 
+<span class="lineNum">     651 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;optimize_coding)</span>
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 :     cinfo-&gt;arith_code = FALSE; /* disable arithmetic coding */</span>
+<span class="lineNum">     653 </span><span class="lineNoCov">          0 :   else if (! cinfo-&gt;arith_code &amp;&amp;</span>
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :            (cinfo-&gt;progressive_mode ||</span>
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :             (cinfo-&gt;block_size &gt; 1 &amp;&amp; cinfo-&gt;block_size &lt; DCTSIZE)))</span>
+<span class="lineNum">     656 </span>            :     /* TEMPORARY HACK ??? */
+<span class="lineNum">     657 </span>            :     /* assume default tables no good for progressive or reduced AC mode */
+<span class="lineNum">     658 </span><span class="lineNoCov">          0 :     cinfo-&gt;optimize_coding = TRUE; /* force Huffman optimization */</span>
+<span class="lineNum">     659 </span>            : 
+<span class="lineNum">     660 </span>            :   /* Initialize my private state */
+<span class="lineNum">     661 </span><span class="lineNoCov">          0 :   if (transcode_only) {</span>
+<span class="lineNum">     662 </span>            :     /* no main pass in transcoding */
+<span class="lineNum">     663 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;optimize_coding)</span>
+<span class="lineNum">     664 </span><span class="lineNoCov">          0 :       master-&gt;pass_type = huff_opt_pass;</span>
+<span class="lineNum">     665 </span>            :     else
+<span class="lineNum">     666 </span><span class="lineNoCov">          0 :       master-&gt;pass_type = output_pass;</span>
+<span class="lineNum">     667 </span>            :   } else {
+<span class="lineNum">     668 </span>            :     /* for normal compression, first pass is always this type: */
+<span class="lineNum">     669 </span><span class="lineNoCov">          0 :     master-&gt;pass_type = main_pass;</span>
+<span class="lineNum">     670 </span>            :   }
+<span class="lineNum">     671 </span><span class="lineNoCov">          0 :   master-&gt;scan_number = 0;</span>
+<span class="lineNum">     672 </span><span class="lineNoCov">          0 :   master-&gt;pass_number = 0;</span>
+<span class="lineNum">     673 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;optimize_coding)</span>
+<span class="lineNum">     674 </span><span class="lineNoCov">          0 :     master-&gt;total_passes = cinfo-&gt;num_scans * 2;</span>
+<span class="lineNum">     675 </span>            :   else
+<span class="lineNum">     676 </span><span class="lineNoCov">          0 :     master-&gt;total_passes = cinfo-&gt;num_scans;</span>
+<span class="lineNum">     677 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

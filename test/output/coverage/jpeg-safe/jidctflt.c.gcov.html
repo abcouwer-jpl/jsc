@@ -1,0 +1,314 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - jpeg-safe/jidctflt.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">jpeg-safe</a> - jidctflt.c<span style="font-size: 80%;"> (source / <a href="jidctflt.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">96</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2020-11-24 12:24:12</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">1</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * jidctflt.c
+<span class="lineNum">       3 </span>            :  *
+<span class="lineNum">       4 </span>            :  * Copyright (C) 1994-1998, Thomas G. Lane.
+<span class="lineNum">       5 </span>            :  * Modified 2010-2017 by Guido Vollbeding.
+<span class="lineNum">       6 </span>            :  * This file is part of the Independent JPEG Group's software.
+<span class="lineNum">       7 </span>            :  * For conditions of distribution and use, see the accompanying README file.
+<span class="lineNum">       8 </span>            :  *
+<span class="lineNum">       9 </span>            :  * This file contains a floating-point implementation of the
+<span class="lineNum">      10 </span>            :  * inverse DCT (Discrete Cosine Transform).  In the IJG code, this routine
+<span class="lineNum">      11 </span>            :  * must also perform dequantization of the input coefficients.
+<span class="lineNum">      12 </span>            :  *
+<span class="lineNum">      13 </span>            :  * This implementation should be more accurate than either of the integer
+<span class="lineNum">      14 </span>            :  * IDCT implementations.  However, it may not give the same results on all
+<span class="lineNum">      15 </span>            :  * machines because of differences in roundoff behavior.  Speed will depend
+<span class="lineNum">      16 </span>            :  * on the hardware's floating point capacity.
+<span class="lineNum">      17 </span>            :  *
+<span class="lineNum">      18 </span>            :  * A 2-D IDCT can be done by 1-D IDCT on each column followed by 1-D IDCT
+<span class="lineNum">      19 </span>            :  * on each row (or vice versa, but it's more convenient to emit a row at
+<span class="lineNum">      20 </span>            :  * a time).  Direct algorithms are also available, but they are much more
+<span class="lineNum">      21 </span>            :  * complex and seem not to be any faster when reduced to code.
+<span class="lineNum">      22 </span>            :  *
+<span class="lineNum">      23 </span>            :  * This implementation is based on Arai, Agui, and Nakajima's algorithm for
+<span class="lineNum">      24 </span>            :  * scaled DCT.  Their original paper (Trans. IEICE E-71(11):1095) is in
+<span class="lineNum">      25 </span>            :  * Japanese, but the algorithm is described in the Pennebaker &amp; Mitchell
+<span class="lineNum">      26 </span>            :  * JPEG textbook (see REFERENCES section in file README).  The following code
+<span class="lineNum">      27 </span>            :  * is based directly on figure 4-8 in P&amp;M.
+<span class="lineNum">      28 </span>            :  * While an 8-point DCT cannot be done in less than 11 multiplies, it is
+<span class="lineNum">      29 </span>            :  * possible to arrange the computation so that many of the multiplies are
+<span class="lineNum">      30 </span>            :  * simple scalings of the final outputs.  These multiplies can then be
+<span class="lineNum">      31 </span>            :  * folded into the multiplications or divisions by the JPEG quantization
+<span class="lineNum">      32 </span>            :  * table entries.  The AA&amp;N method leaves only 5 multiplies and 29 adds
+<span class="lineNum">      33 </span>            :  * to be done in the DCT itself.
+<span class="lineNum">      34 </span>            :  * The primary disadvantage of this method is that with a fixed-point
+<span class="lineNum">      35 </span>            :  * implementation, accuracy is lost due to imprecise representation of the
+<span class="lineNum">      36 </span>            :  * scaled quantization values.  However, that problem does not arise if
+<span class="lineNum">      37 </span>            :  * we use floating point arithmetic.
+<span class="lineNum">      38 </span>            :  */
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span>            : #define JPEG_INTERNALS
+<span class="lineNum">      41 </span>            : #include &quot;jinclude.h&quot;
+<span class="lineNum">      42 </span>            : #include &quot;jpeglib.h&quot;
+<span class="lineNum">      43 </span>            : #include &quot;jdct.h&quot;             /* Private declarations for DCT subsystem */
+<span class="lineNum">      44 </span>            : 
+<span class="lineNum">      45 </span>            : #ifdef DCT_FLOAT_SUPPORTED
+<span class="lineNum">      46 </span>            : 
+<span class="lineNum">      47 </span>            : 
+<span class="lineNum">      48 </span>            : /*
+<span class="lineNum">      49 </span>            :  * This module is specialized to the case DCTSIZE = 8.
+<span class="lineNum">      50 </span>            :  */
+<span class="lineNum">      51 </span>            : 
+<span class="lineNum">      52 </span>            : #if DCTSIZE != 8
+<span class="lineNum">      53 </span>            :   Sorry, this code only copes with 8x8 DCT blocks. /* deliberate syntax err */
+<span class="lineNum">      54 </span>            : #endif
+<span class="lineNum">      55 </span>            : 
+<span class="lineNum">      56 </span>            : 
+<span class="lineNum">      57 </span>            : /* Dequantize a coefficient by multiplying it by the multiplier-table
+<span class="lineNum">      58 </span>            :  * entry; produce a float result.
+<span class="lineNum">      59 </span>            :  */
+<span class="lineNum">      60 </span>            : 
+<span class="lineNum">      61 </span>            : #define DEQUANTIZE(coef,quantval)  (((FAST_FLOAT) (coef)) * (quantval))
+<span class="lineNum">      62 </span>            : 
+<span class="lineNum">      63 </span>            : 
+<span class="lineNum">      64 </span>            : /*
+<span class="lineNum">      65 </span>            :  * Perform dequantization and inverse DCT on one block of coefficients.
+<span class="lineNum">      66 </span>            :  *
+<span class="lineNum">      67 </span>            :  * cK represents cos(K*pi/16).
+<span class="lineNum">      68 </span>            :  */
+<a name="69"><span class="lineNum">      69 </span>            : </a>
+<span class="lineNum">      70 </span>            : GLOBAL(void)
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 : jpeg_idct_float (j_decompress_ptr cinfo, jpeg_component_info * compptr,</span>
+<span class="lineNum">      72 </span>            :                  JCOEFPTR coef_block,
+<span class="lineNum">      73 </span>            :                  JSAMPARRAY output_buf, JDIMENSION output_col)
+<span class="lineNum">      74 </span>            : {
+<span class="lineNum">      75 </span>            :   FAST_FLOAT tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7;
+<span class="lineNum">      76 </span>            :   FAST_FLOAT tmp10, tmp11, tmp12, tmp13;
+<span class="lineNum">      77 </span>            :   FAST_FLOAT z5, z10, z11, z12, z13;
+<span class="lineNum">      78 </span>            :   JCOEFPTR inptr;
+<span class="lineNum">      79 </span>            :   FLOAT_MULT_TYPE * quantptr;
+<span class="lineNum">      80 </span>            :   FAST_FLOAT * wsptr;
+<span class="lineNum">      81 </span>            :   JSAMPROW outptr;
+<span class="lineNum">      82 </span><span class="lineNoCov">          0 :   JSAMPLE *range_limit = IDCT_range_limit(cinfo);</span>
+<span class="lineNum">      83 </span>            :   int ctr;
+<span class="lineNum">      84 </span>            :   FAST_FLOAT workspace[DCTSIZE2]; /* buffers data between passes */
+<span class="lineNum">      85 </span>            : 
+<span class="lineNum">      86 </span>            :   /* Pass 1: process columns from input, store into work array. */
+<span class="lineNum">      87 </span>            : 
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :   inptr = coef_block;</span>
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :   quantptr = (FLOAT_MULT_TYPE *) compptr-&gt;dct_table;</span>
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 :   wsptr = workspace;</span>
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :   for (ctr = DCTSIZE; ctr &gt; 0; ctr--) {</span>
+<span class="lineNum">      92 </span>            :     /* Due to quantization, we will usually find that many of the input
+<span class="lineNum">      93 </span>            :      * coefficients are zero, especially the AC terms.  We can exploit this
+<span class="lineNum">      94 </span>            :      * by short-circuiting the IDCT calculation for any column in which all
+<span class="lineNum">      95 </span>            :      * the AC terms are zero.  In that case each output is equal to the
+<span class="lineNum">      96 </span>            :      * DC coefficient (with scale factor as needed).
+<span class="lineNum">      97 </span>            :      * With typical images and quantization tables, half or more of the
+<span class="lineNum">      98 </span>            :      * column DCT calculations can be simplified this way.
+<span class="lineNum">      99 </span>            :      */
+<span class="lineNum">     100 </span>            : 
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :     if (inptr[DCTSIZE*1] == 0 &amp;&amp; inptr[DCTSIZE*2] == 0 &amp;&amp;</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :         inptr[DCTSIZE*3] == 0 &amp;&amp; inptr[DCTSIZE*4] == 0 &amp;&amp;</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :         inptr[DCTSIZE*5] == 0 &amp;&amp; inptr[DCTSIZE*6] == 0 &amp;&amp;</span>
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :         inptr[DCTSIZE*7] == 0) {</span>
+<span class="lineNum">     105 </span>            :       /* AC terms all zero */
+<span class="lineNum">     106 </span><span class="lineNoCov">          0 :       FAST_FLOAT dcval = DEQUANTIZE(inptr[DCTSIZE*0], quantptr[DCTSIZE*0]);</span>
+<span class="lineNum">     107 </span>            : 
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :       wsptr[DCTSIZE*0] = dcval;</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :       wsptr[DCTSIZE*1] = dcval;</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :       wsptr[DCTSIZE*2] = dcval;</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :       wsptr[DCTSIZE*3] = dcval;</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :       wsptr[DCTSIZE*4] = dcval;</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :       wsptr[DCTSIZE*5] = dcval;</span>
+<span class="lineNum">     114 </span><span class="lineNoCov">          0 :       wsptr[DCTSIZE*6] = dcval;</span>
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :       wsptr[DCTSIZE*7] = dcval;</span>
+<span class="lineNum">     116 </span>            : 
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :       inptr++;                  /* advance pointers to next column */</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :       quantptr++;</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :       wsptr++;</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :       continue;</span>
+<span class="lineNum">     121 </span>            :     }
+<span class="lineNum">     122 </span>            : 
+<span class="lineNum">     123 </span>            :     /* Even part */
+<span class="lineNum">     124 </span>            : 
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :     tmp0 = DEQUANTIZE(inptr[DCTSIZE*0], quantptr[DCTSIZE*0]);</span>
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :     tmp1 = DEQUANTIZE(inptr[DCTSIZE*2], quantptr[DCTSIZE*2]);</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     tmp2 = DEQUANTIZE(inptr[DCTSIZE*4], quantptr[DCTSIZE*4]);</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     tmp3 = DEQUANTIZE(inptr[DCTSIZE*6], quantptr[DCTSIZE*6]);</span>
+<span class="lineNum">     129 </span>            : 
+<span class="lineNum">     130 </span><span class="lineNoCov">          0 :     tmp10 = tmp0 + tmp2;        /* phase 3 */</span>
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     tmp11 = tmp0 - tmp2;</span>
+<span class="lineNum">     132 </span>            : 
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :     tmp13 = tmp1 + tmp3;        /* phases 5-3 */</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :     tmp12 = (tmp1 - tmp3) * ((FAST_FLOAT) 1.414213562) - tmp13; /* 2*c4 */</span>
+<span class="lineNum">     135 </span>            : 
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     tmp0 = tmp10 + tmp13;       /* phase 2 */</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :     tmp3 = tmp10 - tmp13;</span>
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :     tmp1 = tmp11 + tmp12;</span>
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :     tmp2 = tmp11 - tmp12;</span>
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span>            :     /* Odd part */
+<span class="lineNum">     142 </span>            : 
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :     tmp4 = DEQUANTIZE(inptr[DCTSIZE*1], quantptr[DCTSIZE*1]);</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :     tmp5 = DEQUANTIZE(inptr[DCTSIZE*3], quantptr[DCTSIZE*3]);</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :     tmp6 = DEQUANTIZE(inptr[DCTSIZE*5], quantptr[DCTSIZE*5]);</span>
+<span class="lineNum">     146 </span><span class="lineNoCov">          0 :     tmp7 = DEQUANTIZE(inptr[DCTSIZE*7], quantptr[DCTSIZE*7]);</span>
+<span class="lineNum">     147 </span>            : 
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :     z13 = tmp6 + tmp5;          /* phase 6 */</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     z10 = tmp6 - tmp5;</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :     z11 = tmp4 + tmp7;</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :     z12 = tmp4 - tmp7;</span>
+<span class="lineNum">     152 </span>            : 
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :     tmp7 = z11 + z13;           /* phase 5 */</span>
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 :     tmp11 = (z11 - z13) * ((FAST_FLOAT) 1.414213562); /* 2*c4 */</span>
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :     z5 = (z10 + z12) * ((FAST_FLOAT) 1.847759065); /* 2*c2 */</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :     tmp10 = z5 - z12 * ((FAST_FLOAT) 1.082392200); /* 2*(c2-c6) */</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :     tmp12 = z5 - z10 * ((FAST_FLOAT) 2.613125930); /* 2*(c2+c6) */</span>
+<span class="lineNum">     159 </span>            : 
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :     tmp6 = tmp12 - tmp7;        /* phase 2 */</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :     tmp5 = tmp11 - tmp6;</span>
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 :     tmp4 = tmp10 - tmp5;</span>
+<span class="lineNum">     163 </span>            : 
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :     wsptr[DCTSIZE*0] = tmp0 + tmp7;</span>
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :     wsptr[DCTSIZE*7] = tmp0 - tmp7;</span>
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :     wsptr[DCTSIZE*1] = tmp1 + tmp6;</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :     wsptr[DCTSIZE*6] = tmp1 - tmp6;</span>
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :     wsptr[DCTSIZE*2] = tmp2 + tmp5;</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :     wsptr[DCTSIZE*5] = tmp2 - tmp5;</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 :     wsptr[DCTSIZE*3] = tmp3 + tmp4;</span>
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :     wsptr[DCTSIZE*4] = tmp3 - tmp4;</span>
+<span class="lineNum">     172 </span>            : 
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :     inptr++;                    /* advance pointers to next column */</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :     quantptr++;</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :     wsptr++;</span>
+<span class="lineNum">     176 </span>            :   }
+<span class="lineNum">     177 </span>            : 
+<span class="lineNum">     178 </span>            :   /* Pass 2: process rows from work array, store into output array. */
+<span class="lineNum">     179 </span>            : 
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :   wsptr = workspace;</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :   for (ctr = 0; ctr &lt; DCTSIZE; ctr++) {</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :     outptr = output_buf[ctr] + output_col;</span>
+<span class="lineNum">     183 </span>            :     /* Rows of zeroes can be exploited in the same way as we did with columns.
+<span class="lineNum">     184 </span>            :      * However, the column calculation has created many nonzero AC terms, so
+<span class="lineNum">     185 </span>            :      * the simplification applies less often (typically 5% to 10% of the time).
+<span class="lineNum">     186 </span>            :      * And testing floats for zero is relatively expensive, so we don't bother.
+<span class="lineNum">     187 </span>            :      */
+<span class="lineNum">     188 </span>            : 
+<span class="lineNum">     189 </span>            :     /* Even part */
+<span class="lineNum">     190 </span>            : 
+<span class="lineNum">     191 </span>            :     /* Prepare range-limit and float-&gt;int conversion */
+<span class="lineNum">     192 </span><span class="lineNoCov">          0 :     z5 = wsptr[0] + (((FAST_FLOAT) RANGE_CENTER) + ((FAST_FLOAT) 0.5));</span>
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :     tmp10 = z5 + wsptr[4];</span>
+<span class="lineNum">     194 </span><span class="lineNoCov">          0 :     tmp11 = z5 - wsptr[4];</span>
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     tmp13 = wsptr[2] + wsptr[6];</span>
+<span class="lineNum">     197 </span><span class="lineNoCov">          0 :     tmp12 = (wsptr[2] - wsptr[6]) *</span>
+<span class="lineNum">     198 </span>            :               ((FAST_FLOAT) 1.414213562) - tmp13; /* 2*c4 */
+<span class="lineNum">     199 </span>            : 
+<span class="lineNum">     200 </span><span class="lineNoCov">          0 :     tmp0 = tmp10 + tmp13;</span>
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :     tmp3 = tmp10 - tmp13;</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :     tmp1 = tmp11 + tmp12;</span>
+<span class="lineNum">     203 </span><span class="lineNoCov">          0 :     tmp2 = tmp11 - tmp12;</span>
+<span class="lineNum">     204 </span>            : 
+<span class="lineNum">     205 </span>            :     /* Odd part */
+<span class="lineNum">     206 </span>            : 
+<span class="lineNum">     207 </span><span class="lineNoCov">          0 :     z13 = wsptr[5] + wsptr[3];</span>
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     z10 = wsptr[5] - wsptr[3];</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :     z11 = wsptr[1] + wsptr[7];</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :     z12 = wsptr[1] - wsptr[7];</span>
+<span class="lineNum">     211 </span>            : 
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :     tmp7 = z11 + z13;           /* phase 5 */</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :     tmp11 = (z11 - z13) * ((FAST_FLOAT) 1.414213562); /* 2*c4 */</span>
+<span class="lineNum">     214 </span>            : 
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :     z5 = (z10 + z12) * ((FAST_FLOAT) 1.847759065); /* 2*c2 */</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     tmp10 = z5 - z12 * ((FAST_FLOAT) 1.082392200); /* 2*(c2-c6) */</span>
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :     tmp12 = z5 - z10 * ((FAST_FLOAT) 2.613125930); /* 2*(c2+c6) */</span>
+<span class="lineNum">     218 </span>            : 
+<span class="lineNum">     219 </span><span class="lineNoCov">          0 :     tmp6 = tmp12 - tmp7;        /* phase 2 */</span>
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :     tmp5 = tmp11 - tmp6;</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :     tmp4 = tmp10 - tmp5;</span>
+<span class="lineNum">     222 </span>            : 
+<span class="lineNum">     223 </span>            :     /* Final output stage: float-&gt;int conversion and range-limit */
+<span class="lineNum">     224 </span>            : 
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :     outptr[0] = range_limit[(int) (tmp0 + tmp7) &amp; RANGE_MASK];</span>
+<span class="lineNum">     226 </span><span class="lineNoCov">          0 :     outptr[7] = range_limit[(int) (tmp0 - tmp7) &amp; RANGE_MASK];</span>
+<span class="lineNum">     227 </span><span class="lineNoCov">          0 :     outptr[1] = range_limit[(int) (tmp1 + tmp6) &amp; RANGE_MASK];</span>
+<span class="lineNum">     228 </span><span class="lineNoCov">          0 :     outptr[6] = range_limit[(int) (tmp1 - tmp6) &amp; RANGE_MASK];</span>
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :     outptr[2] = range_limit[(int) (tmp2 + tmp5) &amp; RANGE_MASK];</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :     outptr[5] = range_limit[(int) (tmp2 - tmp5) &amp; RANGE_MASK];</span>
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :     outptr[3] = range_limit[(int) (tmp3 + tmp4) &amp; RANGE_MASK];</span>
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :     outptr[4] = range_limit[(int) (tmp3 - tmp4) &amp; RANGE_MASK];</span>
+<span class="lineNum">     233 </span>            : 
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :     wsptr += DCTSIZE;           /* advance pointer to next row */</span>
+<span class="lineNum">     235 </span>            :   }
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     237 </span>            : 
+<span class="lineNum">     238 </span>            : #endif /* DCT_FLOAT_SUPPORTED */
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

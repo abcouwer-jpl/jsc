@@ -1,0 +1,514 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - jpeg-safe/jdmerge.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">jpeg-safe</a> - jdmerge.c<span style="font-size: 80%;"> (source / <a href="jdmerge.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">169</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2020-11-24 12:24:12</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * jdmerge.c
+<span class="lineNum">       3 </span>            :  *
+<span class="lineNum">       4 </span>            :  * Copyright (C) 1994-1996, Thomas G. Lane.
+<span class="lineNum">       5 </span>            :  * Modified 2013-2019 by Guido Vollbeding.
+<span class="lineNum">       6 </span>            :  * This file is part of the Independent JPEG Group's software.
+<span class="lineNum">       7 </span>            :  * For conditions of distribution and use, see the accompanying README file.
+<span class="lineNum">       8 </span>            :  *
+<span class="lineNum">       9 </span>            :  * This file contains code for merged upsampling/color conversion.
+<span class="lineNum">      10 </span>            :  *
+<span class="lineNum">      11 </span>            :  * This file combines functions from jdsample.c and jdcolor.c;
+<span class="lineNum">      12 </span>            :  * read those files first to understand what's going on.
+<span class="lineNum">      13 </span>            :  *
+<span class="lineNum">      14 </span>            :  * When the chroma components are to be upsampled by simple replication
+<span class="lineNum">      15 </span>            :  * (ie, box filtering), we can save some work in color conversion by
+<span class="lineNum">      16 </span>            :  * calculating all the output pixels corresponding to a pair of chroma
+<span class="lineNum">      17 </span>            :  * samples at one time.  In the conversion equations
+<span class="lineNum">      18 </span>            :  *      R = Y           + K1 * Cr
+<span class="lineNum">      19 </span>            :  *      G = Y + K2 * Cb + K3 * Cr
+<span class="lineNum">      20 </span>            :  *      B = Y + K4 * Cb
+<span class="lineNum">      21 </span>            :  * only the Y term varies among the group of pixels corresponding to a pair
+<span class="lineNum">      22 </span>            :  * of chroma samples, so the rest of the terms can be calculated just once.
+<span class="lineNum">      23 </span>            :  * At typical sampling ratios, this eliminates half or three-quarters of the
+<span class="lineNum">      24 </span>            :  * multiplications needed for color conversion.
+<span class="lineNum">      25 </span>            :  *
+<span class="lineNum">      26 </span>            :  * This file currently provides implementations for the following cases:
+<span class="lineNum">      27 </span>            :  *      YCC =&gt; RGB color conversion only (YCbCr or BG_YCC).
+<span class="lineNum">      28 </span>            :  *      Sampling ratios of 2h1v or 2h2v.
+<span class="lineNum">      29 </span>            :  *      No scaling needed at upsample time.
+<span class="lineNum">      30 </span>            :  *      Corner-aligned (non-CCIR601) sampling alignment.
+<span class="lineNum">      31 </span>            :  * Other special cases could be added, but in most applications these are
+<span class="lineNum">      32 </span>            :  * the only common cases.  (For uncommon cases we fall back on the more
+<span class="lineNum">      33 </span>            :  * general code in jdsample.c and jdcolor.c.)
+<span class="lineNum">      34 </span>            :  */
+<span class="lineNum">      35 </span>            : 
+<span class="lineNum">      36 </span>            : #define JPEG_INTERNALS
+<span class="lineNum">      37 </span>            : #include &quot;jinclude.h&quot;
+<span class="lineNum">      38 </span>            : #include &quot;jpeglib.h&quot;
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span>            : #ifdef UPSAMPLE_MERGING_SUPPORTED
+<span class="lineNum">      41 </span>            : 
+<span class="lineNum">      42 </span>            : 
+<span class="lineNum">      43 </span>            : #if RANGE_BITS &lt; 2
+<span class="lineNum">      44 </span>            :   /* Deliberate syntax err */
+<span class="lineNum">      45 </span>            :   Sorry, this code requires 2 or more range extension bits.
+<span class="lineNum">      46 </span>            : #endif
+<span class="lineNum">      47 </span>            : 
+<span class="lineNum">      48 </span>            : 
+<span class="lineNum">      49 </span>            : /* Private subobject */
+<span class="lineNum">      50 </span>            : 
+<span class="lineNum">      51 </span>            : typedef struct {
+<span class="lineNum">      52 </span>            :   struct jpeg_upsampler pub;    /* public fields */
+<span class="lineNum">      53 </span>            : 
+<span class="lineNum">      54 </span>            :   /* Pointer to routine to do actual upsampling/conversion of one row group */
+<span class="lineNum">      55 </span>            :   JMETHOD(void, upmethod, (j_decompress_ptr cinfo,
+<span class="lineNum">      56 </span>            :                            JSAMPIMAGE input_buf, JDIMENSION in_row_group_ctr,
+<span class="lineNum">      57 </span>            :                            JSAMPARRAY output_buf));
+<span class="lineNum">      58 </span>            : 
+<span class="lineNum">      59 </span>            :   /* Private state for YCC-&gt;RGB conversion */
+<span class="lineNum">      60 </span>            :   int * Cr_r_tab;               /* =&gt; table for Cr to R conversion */
+<span class="lineNum">      61 </span>            :   int * Cb_b_tab;               /* =&gt; table for Cb to B conversion */
+<span class="lineNum">      62 </span>            :   INT32 * Cr_g_tab;             /* =&gt; table for Cr to G conversion */
+<span class="lineNum">      63 </span>            :   INT32 * Cb_g_tab;             /* =&gt; table for Cb to G conversion */
+<span class="lineNum">      64 </span>            : 
+<span class="lineNum">      65 </span>            :   /* For 2:1 vertical sampling, we produce two output rows at a time.
+<span class="lineNum">      66 </span>            :    * We need a &quot;spare&quot; row buffer to hold the second output row if the
+<span class="lineNum">      67 </span>            :    * application provides just a one-row buffer; we also use the spare
+<span class="lineNum">      68 </span>            :    * to discard the dummy last row if the image height is odd.
+<span class="lineNum">      69 </span>            :    */
+<span class="lineNum">      70 </span>            :   JSAMPROW spare_row;
+<span class="lineNum">      71 </span>            :   boolean spare_full;           /* T if spare buffer is occupied */
+<span class="lineNum">      72 </span>            : 
+<span class="lineNum">      73 </span>            :   JDIMENSION out_row_width;     /* samples per output row */
+<span class="lineNum">      74 </span>            :   JDIMENSION rows_to_go;        /* counts rows remaining in image */
+<span class="lineNum">      75 </span>            : } my_upsampler;
+<span class="lineNum">      76 </span>            : 
+<span class="lineNum">      77 </span>            : typedef my_upsampler * my_upsample_ptr;
+<span class="lineNum">      78 </span>            : 
+<span class="lineNum">      79 </span>            : #define SCALEBITS       16      /* speediest right-shift on some machines */
+<span class="lineNum">      80 </span>            : #define ONE_HALF        ((INT32) 1 &lt;&lt; (SCALEBITS-1))
+<span class="lineNum">      81 </span>            : #define FIX(x)          ((INT32) ((x) * (1L&lt;&lt;SCALEBITS) + 0.5))
+<span class="lineNum">      82 </span>            : 
+<span class="lineNum">      83 </span>            : 
+<span class="lineNum">      84 </span>            : /*
+<span class="lineNum">      85 </span>            :  * Initialize tables for YCbCr-&gt;RGB and BG_YCC-&gt;RGB colorspace conversion.
+<span class="lineNum">      86 </span>            :  * This is taken directly from jdcolor.c; see that file for more info.
+<span class="lineNum">      87 </span>            :  */
+<a name="88"><span class="lineNum">      88 </span>            : </a>
+<span class="lineNum">      89 </span>            : LOCAL(void)
+<span class="lineNum">      90 </span><span class="lineNoCov">          0 : build_ycc_rgb_table (j_decompress_ptr cinfo)</span>
+<span class="lineNum">      91 </span>            : /* Normal case, sYCC */
+<span class="lineNum">      92 </span>            : {
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :   my_upsample_ptr upsample = (my_upsample_ptr) cinfo-&gt;upsample;</span>
+<span class="lineNum">      94 </span>            :   int i;
+<span class="lineNum">      95 </span>            :   INT32 x;
+<span class="lineNum">      96 </span>            :   SHIFT_TEMPS
+<span class="lineNum">      97 </span>            : 
+<span class="lineNum">      98 </span><span class="lineNoCov">          0 :   upsample-&gt;Cr_r_tab = (int *) (*cinfo-&gt;mem-&gt;alloc_small)</span>
+<span class="lineNum">      99 </span>            :     ((j_common_ptr) cinfo, JPOOL_IMAGE, (MAXJSAMPLE+1) * SIZEOF(int));
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :   upsample-&gt;Cb_b_tab = (int *) (*cinfo-&gt;mem-&gt;alloc_small)</span>
+<span class="lineNum">     101 </span>            :     ((j_common_ptr) cinfo, JPOOL_IMAGE, (MAXJSAMPLE+1) * SIZEOF(int));
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :   upsample-&gt;Cr_g_tab = (INT32 *) (*cinfo-&gt;mem-&gt;alloc_small)</span>
+<span class="lineNum">     103 </span>            :     ((j_common_ptr) cinfo, JPOOL_IMAGE, (MAXJSAMPLE+1) * SIZEOF(INT32));
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :   upsample-&gt;Cb_g_tab = (INT32 *) (*cinfo-&gt;mem-&gt;alloc_small)</span>
+<span class="lineNum">     105 </span>            :     ((j_common_ptr) cinfo, JPOOL_IMAGE, (MAXJSAMPLE+1) * SIZEOF(INT32));
+<span class="lineNum">     106 </span>            : 
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :   for (i = 0, x = -CENTERJSAMPLE; i &lt;= MAXJSAMPLE; i++, x++) {</span>
+<span class="lineNum">     108 </span>            :     /* i is the actual input pixel value, in the range 0..MAXJSAMPLE */
+<span class="lineNum">     109 </span>            :     /* The Cb or Cr value we are thinking of is x = i - CENTERJSAMPLE */
+<span class="lineNum">     110 </span>            :     /* Cr=&gt;R value is nearest int to 1.402 * x */
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :     upsample-&gt;Cr_r_tab[i] = (int) DESCALE(FIX(1.402) * x, SCALEBITS);</span>
+<span class="lineNum">     112 </span>            :     /* Cb=&gt;B value is nearest int to 1.772 * x */
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :     upsample-&gt;Cb_b_tab[i] = (int) DESCALE(FIX(1.772) * x, SCALEBITS);</span>
+<span class="lineNum">     114 </span>            :     /* Cr=&gt;G value is scaled-up -0.714136286 * x */
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :     upsample-&gt;Cr_g_tab[i] = (- FIX(0.714136286)) * x;</span>
+<span class="lineNum">     116 </span>            :     /* Cb=&gt;G value is scaled-up -0.344136286 * x */
+<span class="lineNum">     117 </span>            :     /* We also add in ONE_HALF so that need not do it in inner loop */
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :     upsample-&gt;Cb_g_tab[i] = (- FIX(0.344136286)) * x + ONE_HALF;</span>
+<span class="lineNum">     119 </span>            :   }
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     121 </span>            : 
+<a name="122"><span class="lineNum">     122 </span>            : </a>
+<span class="lineNum">     123 </span>            : LOCAL(void)
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 : build_bg_ycc_rgb_table (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     125 </span>            : /* Wide gamut case, bg-sYCC */
+<span class="lineNum">     126 </span>            : {
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :   my_upsample_ptr upsample = (my_upsample_ptr) cinfo-&gt;upsample;</span>
+<span class="lineNum">     128 </span>            :   int i;
+<span class="lineNum">     129 </span>            :   INT32 x;
+<span class="lineNum">     130 </span>            :   SHIFT_TEMPS
+<span class="lineNum">     131 </span>            : 
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :   upsample-&gt;Cr_r_tab = (int *) (*cinfo-&gt;mem-&gt;alloc_small)</span>
+<span class="lineNum">     133 </span>            :     ((j_common_ptr) cinfo, JPOOL_IMAGE, (MAXJSAMPLE+1) * SIZEOF(int));
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :   upsample-&gt;Cb_b_tab = (int *) (*cinfo-&gt;mem-&gt;alloc_small)</span>
+<span class="lineNum">     135 </span>            :     ((j_common_ptr) cinfo, JPOOL_IMAGE, (MAXJSAMPLE+1) * SIZEOF(int));
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :   upsample-&gt;Cr_g_tab = (INT32 *) (*cinfo-&gt;mem-&gt;alloc_small)</span>
+<span class="lineNum">     137 </span>            :     ((j_common_ptr) cinfo, JPOOL_IMAGE, (MAXJSAMPLE+1) * SIZEOF(INT32));
+<span class="lineNum">     138 </span><span class="lineNoCov">          0 :   upsample-&gt;Cb_g_tab = (INT32 *) (*cinfo-&gt;mem-&gt;alloc_small)</span>
+<span class="lineNum">     139 </span>            :     ((j_common_ptr) cinfo, JPOOL_IMAGE, (MAXJSAMPLE+1) * SIZEOF(INT32));
+<span class="lineNum">     140 </span>            : 
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :   for (i = 0, x = -CENTERJSAMPLE; i &lt;= MAXJSAMPLE; i++, x++) {</span>
+<span class="lineNum">     142 </span>            :     /* i is the actual input pixel value, in the range 0..MAXJSAMPLE */
+<span class="lineNum">     143 </span>            :     /* The Cb or Cr value we are thinking of is x = i - CENTERJSAMPLE */
+<span class="lineNum">     144 </span>            :     /* Cr=&gt;R value is nearest int to 2.804 * x */
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :     upsample-&gt;Cr_r_tab[i] = (int) DESCALE(FIX(2.804) * x, SCALEBITS);</span>
+<span class="lineNum">     146 </span>            :     /* Cb=&gt;B value is nearest int to 3.544 * x */
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :     upsample-&gt;Cb_b_tab[i] = (int) DESCALE(FIX(3.544) * x, SCALEBITS);</span>
+<span class="lineNum">     148 </span>            :     /* Cr=&gt;G value is scaled-up -1.428272572 * x */
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     upsample-&gt;Cr_g_tab[i] = (- FIX(1.428272572)) * x;</span>
+<span class="lineNum">     150 </span>            :     /* Cb=&gt;G value is scaled-up -0.688272572 * x */
+<span class="lineNum">     151 </span>            :     /* We also add in ONE_HALF so that need not do it in inner loop */
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :     upsample-&gt;Cb_g_tab[i] = (- FIX(0.688272572)) * x + ONE_HALF;</span>
+<span class="lineNum">     153 </span>            :   }
+<span class="lineNum">     154 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     155 </span>            : 
+<span class="lineNum">     156 </span>            : 
+<span class="lineNum">     157 </span>            : /*
+<span class="lineNum">     158 </span>            :  * Initialize for an upsampling pass.
+<span class="lineNum">     159 </span>            :  */
+<a name="160"><span class="lineNum">     160 </span>            : </a>
+<span class="lineNum">     161 </span>            : METHODDEF(void)
+<span class="lineNum">     162 </span><span class="lineNoCov">          0 : start_pass_merged_upsample (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     163 </span>            : {
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :   my_upsample_ptr upsample = (my_upsample_ptr) cinfo-&gt;upsample;</span>
+<span class="lineNum">     165 </span>            : 
+<span class="lineNum">     166 </span>            :   /* Mark the spare buffer empty */
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :   upsample-&gt;spare_full = FALSE;</span>
+<span class="lineNum">     168 </span>            :   /* Initialize total-height counter for detecting bottom of image */
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :   upsample-&gt;rows_to_go = cinfo-&gt;output_height;</span>
+<span class="lineNum">     170 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     171 </span>            : 
+<span class="lineNum">     172 </span>            : 
+<span class="lineNum">     173 </span>            : /*
+<span class="lineNum">     174 </span>            :  * Control routine to do upsampling (and color conversion).
+<span class="lineNum">     175 </span>            :  *
+<span class="lineNum">     176 </span>            :  * The control routine just handles the row buffering considerations.
+<span class="lineNum">     177 </span>            :  */
+<a name="178"><span class="lineNum">     178 </span>            : </a>
+<span class="lineNum">     179 </span>            : METHODDEF(void)
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 : merged_2v_upsample (j_decompress_ptr cinfo,</span>
+<span class="lineNum">     181 </span>            :                     JSAMPIMAGE input_buf, JDIMENSION *in_row_group_ctr,
+<span class="lineNum">     182 </span>            :                     JDIMENSION in_row_groups_avail,
+<span class="lineNum">     183 </span>            :                     JSAMPARRAY output_buf, JDIMENSION *out_row_ctr,
+<span class="lineNum">     184 </span>            :                     JDIMENSION out_rows_avail)
+<span class="lineNum">     185 </span>            : /* 2:1 vertical sampling case: may need a spare row. */
+<span class="lineNum">     186 </span>            : {
+<span class="lineNum">     187 </span><span class="lineNoCov">          0 :   my_upsample_ptr upsample = (my_upsample_ptr) cinfo-&gt;upsample;</span>
+<span class="lineNum">     188 </span>            :   JSAMPROW work_ptrs[2];
+<span class="lineNum">     189 </span>            :   JDIMENSION num_rows;          /* number of rows returned to caller */
+<span class="lineNum">     190 </span>            : 
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :   if (upsample-&gt;spare_full) {</span>
+<span class="lineNum">     192 </span>            :     /* If we have a spare row saved from a previous cycle, just return it. */
+<span class="lineNum">     193 </span><span class="lineNoCov">          0 :     jcopy_sample_rows(&amp; upsample-&gt;spare_row, 0, output_buf + *out_row_ctr, 0,</span>
+<span class="lineNum">     194 </span>            :                       1, upsample-&gt;out_row_width);
+<span class="lineNum">     195 </span><span class="lineNoCov">          0 :     num_rows = 1;</span>
+<span class="lineNum">     196 </span><span class="lineNoCov">          0 :     upsample-&gt;spare_full = FALSE;</span>
+<span class="lineNum">     197 </span>            :   } else {
+<span class="lineNum">     198 </span>            :     /* Figure number of rows to return to caller. */
+<span class="lineNum">     199 </span><span class="lineNoCov">          0 :     num_rows = 2;</span>
+<span class="lineNum">     200 </span>            :     /* Not more than the distance to the end of the image. */
+<span class="lineNum">     201 </span><span class="lineNoCov">          0 :     if (num_rows &gt; upsample-&gt;rows_to_go)</span>
+<span class="lineNum">     202 </span><span class="lineNoCov">          0 :       num_rows = upsample-&gt;rows_to_go;</span>
+<span class="lineNum">     203 </span>            :     /* And not more than what the client can accept: */
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 :     out_rows_avail -= *out_row_ctr;</span>
+<span class="lineNum">     205 </span><span class="lineNoCov">          0 :     if (num_rows &gt; out_rows_avail)</span>
+<span class="lineNum">     206 </span><span class="lineNoCov">          0 :       num_rows = out_rows_avail;</span>
+<span class="lineNum">     207 </span>            :     /* Create output pointer array for upsampler. */
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 :     work_ptrs[0] = output_buf[*out_row_ctr];</span>
+<span class="lineNum">     209 </span><span class="lineNoCov">          0 :     if (num_rows &gt; 1) {</span>
+<span class="lineNum">     210 </span><span class="lineNoCov">          0 :       work_ptrs[1] = output_buf[*out_row_ctr + 1];</span>
+<span class="lineNum">     211 </span>            :     } else {
+<span class="lineNum">     212 </span><span class="lineNoCov">          0 :       work_ptrs[1] = upsample-&gt;spare_row;</span>
+<span class="lineNum">     213 </span><span class="lineNoCov">          0 :       upsample-&gt;spare_full = TRUE;</span>
+<span class="lineNum">     214 </span>            :     }
+<span class="lineNum">     215 </span>            :     /* Now do the upsampling. */
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :     (*upsample-&gt;upmethod) (cinfo, input_buf, *in_row_group_ctr, work_ptrs);</span>
+<span class="lineNum">     217 </span>            :   }
+<span class="lineNum">     218 </span>            : 
+<span class="lineNum">     219 </span>            :   /* Adjust counts */
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :   *out_row_ctr += num_rows;</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :   upsample-&gt;rows_to_go -= num_rows;</span>
+<span class="lineNum">     222 </span>            :   /* When the buffer is emptied, declare this input row group consumed */
+<span class="lineNum">     223 </span><span class="lineNoCov">          0 :   if (! upsample-&gt;spare_full)</span>
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :     (*in_row_group_ctr)++;</span>
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     226 </span>            : 
+<a name="227"><span class="lineNum">     227 </span>            : </a>
+<span class="lineNum">     228 </span>            : METHODDEF(void)
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 : merged_1v_upsample (j_decompress_ptr cinfo,</span>
+<span class="lineNum">     230 </span>            :                     JSAMPIMAGE input_buf, JDIMENSION *in_row_group_ctr,
+<span class="lineNum">     231 </span>            :                     JDIMENSION in_row_groups_avail,
+<span class="lineNum">     232 </span>            :                     JSAMPARRAY output_buf, JDIMENSION *out_row_ctr,
+<span class="lineNum">     233 </span>            :                     JDIMENSION out_rows_avail)
+<span class="lineNum">     234 </span>            : /* 1:1 vertical sampling case: much easier, never need a spare row. */
+<span class="lineNum">     235 </span>            : {
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :   my_upsample_ptr upsample = (my_upsample_ptr) cinfo-&gt;upsample;</span>
+<span class="lineNum">     237 </span>            : 
+<span class="lineNum">     238 </span>            :   /* Just do the upsampling. */
+<span class="lineNum">     239 </span><span class="lineNoCov">          0 :   (*upsample-&gt;upmethod) (cinfo, input_buf, *in_row_group_ctr,</span>
+<span class="lineNum">     240 </span><span class="lineNoCov">          0 :                          output_buf + *out_row_ctr);</span>
+<span class="lineNum">     241 </span>            :   /* Adjust counts */
+<span class="lineNum">     242 </span><span class="lineNoCov">          0 :   (*out_row_ctr)++;</span>
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :   (*in_row_group_ctr)++;</span>
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     245 </span>            : 
+<span class="lineNum">     246 </span>            : 
+<span class="lineNum">     247 </span>            : /*
+<span class="lineNum">     248 </span>            :  * These are the routines invoked by the control routines to do
+<span class="lineNum">     249 </span>            :  * the actual upsampling/conversion.  One row group is processed per call.
+<span class="lineNum">     250 </span>            :  *
+<span class="lineNum">     251 </span>            :  * Note: since we may be writing directly into application-supplied buffers,
+<span class="lineNum">     252 </span>            :  * we have to be honest about the output width; we can't assume the buffer
+<span class="lineNum">     253 </span>            :  * has been rounded up to an even width.
+<span class="lineNum">     254 </span>            :  */
+<span class="lineNum">     255 </span>            : 
+<span class="lineNum">     256 </span>            : 
+<span class="lineNum">     257 </span>            : /*
+<span class="lineNum">     258 </span>            :  * Upsample and color convert for the case of 2:1 horizontal and 1:1 vertical.
+<span class="lineNum">     259 </span>            :  */
+<a name="260"><span class="lineNum">     260 </span>            : </a>
+<span class="lineNum">     261 </span>            : METHODDEF(void)
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 : h2v1_merged_upsample (j_decompress_ptr cinfo,</span>
+<span class="lineNum">     263 </span>            :                       JSAMPIMAGE input_buf, JDIMENSION in_row_group_ctr,
+<span class="lineNum">     264 </span>            :                       JSAMPARRAY output_buf)
+<span class="lineNum">     265 </span>            : {
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :   my_upsample_ptr upsample = (my_upsample_ptr) cinfo-&gt;upsample;</span>
+<span class="lineNum">     267 </span>            :   register int y, cred, cgreen, cblue;
+<span class="lineNum">     268 </span>            :   int cb, cr;
+<span class="lineNum">     269 </span>            :   register JSAMPROW outptr;
+<span class="lineNum">     270 </span>            :   JSAMPROW inptr0, inptr1, inptr2;
+<span class="lineNum">     271 </span>            :   JDIMENSION col;
+<span class="lineNum">     272 </span>            :   /* copy these pointers into registers if possible */
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :   register JSAMPLE * range_limit = cinfo-&gt;sample_range_limit;</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :   int * Crrtab = upsample-&gt;Cr_r_tab;</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :   int * Cbbtab = upsample-&gt;Cb_b_tab;</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :   INT32 * Crgtab = upsample-&gt;Cr_g_tab;</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :   INT32 * Cbgtab = upsample-&gt;Cb_g_tab;</span>
+<span class="lineNum">     278 </span>            :   SHIFT_TEMPS
+<span class="lineNum">     279 </span>            : 
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :   inptr0 = input_buf[0][in_row_group_ctr];</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :   inptr1 = input_buf[1][in_row_group_ctr];</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :   inptr2 = input_buf[2][in_row_group_ctr];</span>
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :   outptr = output_buf[0];</span>
+<span class="lineNum">     284 </span>            :   /* Loop for each pair of output pixels */
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :   for (col = cinfo-&gt;output_width &gt;&gt; 1; col &gt; 0; col--) {</span>
+<span class="lineNum">     286 </span>            :     /* Do the chroma part of the calculation */
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :     cb = GETJSAMPLE(*inptr1++);</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :     cr = GETJSAMPLE(*inptr2++);</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :     cred   = Crrtab[cr];</span>
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :     cgreen = (int) RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr], SCALEBITS);</span>
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :     cblue  = Cbbtab[cb];</span>
+<span class="lineNum">     292 </span>            :     /* Fetch 2 Y values and emit 2 pixels */
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :     y  = GETJSAMPLE(*inptr0++);</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :     outptr[RGB_RED]   = range_limit[y + cred];</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     outptr[RGB_GREEN] = range_limit[y + cgreen];</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :     outptr[RGB_BLUE]  = range_limit[y + cblue];</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :     outptr += RGB_PIXELSIZE;</span>
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :     y  = GETJSAMPLE(*inptr0++);</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :     outptr[RGB_RED]   = range_limit[y + cred];</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :     outptr[RGB_GREEN] = range_limit[y + cgreen];</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :     outptr[RGB_BLUE]  = range_limit[y + cblue];</span>
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :     outptr += RGB_PIXELSIZE;</span>
+<span class="lineNum">     303 </span>            :   }
+<span class="lineNum">     304 </span>            :   /* If image width is odd, do the last output column separately */
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;output_width &amp; 1) {</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :     cb = GETJSAMPLE(*inptr1);</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :     cr = GETJSAMPLE(*inptr2);</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :     cred   = Crrtab[cr];</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :     cgreen = (int) RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr], SCALEBITS);</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :     cblue  = Cbbtab[cb];</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :     y  = GETJSAMPLE(*inptr0);</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :     outptr[RGB_RED]   = range_limit[y + cred];</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :     outptr[RGB_GREEN] = range_limit[y + cgreen];</span>
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :     outptr[RGB_BLUE]  = range_limit[y + cblue];</span>
+<span class="lineNum">     315 </span>            :   }
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     317 </span>            : 
+<span class="lineNum">     318 </span>            : 
+<span class="lineNum">     319 </span>            : /*
+<span class="lineNum">     320 </span>            :  * Upsample and color convert for the case of 2:1 horizontal and 2:1 vertical.
+<span class="lineNum">     321 </span>            :  */
+<a name="322"><span class="lineNum">     322 </span>            : </a>
+<span class="lineNum">     323 </span>            : METHODDEF(void)
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 : h2v2_merged_upsample (j_decompress_ptr cinfo,</span>
+<span class="lineNum">     325 </span>            :                       JSAMPIMAGE input_buf, JDIMENSION in_row_group_ctr,
+<span class="lineNum">     326 </span>            :                       JSAMPARRAY output_buf)
+<span class="lineNum">     327 </span>            : {
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :   my_upsample_ptr upsample = (my_upsample_ptr) cinfo-&gt;upsample;</span>
+<span class="lineNum">     329 </span>            :   register int y, cred, cgreen, cblue;
+<span class="lineNum">     330 </span>            :   int cb, cr;
+<span class="lineNum">     331 </span>            :   register JSAMPROW outptr0, outptr1;
+<span class="lineNum">     332 </span>            :   JSAMPROW inptr00, inptr01, inptr1, inptr2;
+<span class="lineNum">     333 </span>            :   JDIMENSION col;
+<span class="lineNum">     334 </span>            :   /* copy these pointers into registers if possible */
+<span class="lineNum">     335 </span><span class="lineNoCov">          0 :   register JSAMPLE * range_limit = cinfo-&gt;sample_range_limit;</span>
+<span class="lineNum">     336 </span><span class="lineNoCov">          0 :   int * Crrtab = upsample-&gt;Cr_r_tab;</span>
+<span class="lineNum">     337 </span><span class="lineNoCov">          0 :   int * Cbbtab = upsample-&gt;Cb_b_tab;</span>
+<span class="lineNum">     338 </span><span class="lineNoCov">          0 :   INT32 * Crgtab = upsample-&gt;Cr_g_tab;</span>
+<span class="lineNum">     339 </span><span class="lineNoCov">          0 :   INT32 * Cbgtab = upsample-&gt;Cb_g_tab;</span>
+<span class="lineNum">     340 </span>            :   SHIFT_TEMPS
+<span class="lineNum">     341 </span>            : 
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :   inptr00 = input_buf[0][in_row_group_ctr*2];</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :   inptr01 = input_buf[0][in_row_group_ctr*2 + 1];</span>
+<span class="lineNum">     344 </span><span class="lineNoCov">          0 :   inptr1 = input_buf[1][in_row_group_ctr];</span>
+<span class="lineNum">     345 </span><span class="lineNoCov">          0 :   inptr2 = input_buf[2][in_row_group_ctr];</span>
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :   outptr0 = output_buf[0];</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :   outptr1 = output_buf[1];</span>
+<span class="lineNum">     348 </span>            :   /* Loop for each group of output pixels */
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :   for (col = cinfo-&gt;output_width &gt;&gt; 1; col &gt; 0; col--) {</span>
+<span class="lineNum">     350 </span>            :     /* Do the chroma part of the calculation */
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :     cb = GETJSAMPLE(*inptr1++);</span>
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :     cr = GETJSAMPLE(*inptr2++);</span>
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :     cred   = Crrtab[cr];</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :     cgreen = (int) RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr], SCALEBITS);</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :     cblue  = Cbbtab[cb];</span>
+<span class="lineNum">     356 </span>            :     /* Fetch 4 Y values and emit 4 pixels */
+<span class="lineNum">     357 </span><span class="lineNoCov">          0 :     y  = GETJSAMPLE(*inptr00++);</span>
+<span class="lineNum">     358 </span><span class="lineNoCov">          0 :     outptr0[RGB_RED]   = range_limit[y + cred];</span>
+<span class="lineNum">     359 </span><span class="lineNoCov">          0 :     outptr0[RGB_GREEN] = range_limit[y + cgreen];</span>
+<span class="lineNum">     360 </span><span class="lineNoCov">          0 :     outptr0[RGB_BLUE]  = range_limit[y + cblue];</span>
+<span class="lineNum">     361 </span><span class="lineNoCov">          0 :     outptr0 += RGB_PIXELSIZE;</span>
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :     y  = GETJSAMPLE(*inptr00++);</span>
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :     outptr0[RGB_RED]   = range_limit[y + cred];</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :     outptr0[RGB_GREEN] = range_limit[y + cgreen];</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :     outptr0[RGB_BLUE]  = range_limit[y + cblue];</span>
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :     outptr0 += RGB_PIXELSIZE;</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :     y  = GETJSAMPLE(*inptr01++);</span>
+<span class="lineNum">     368 </span><span class="lineNoCov">          0 :     outptr1[RGB_RED]   = range_limit[y + cred];</span>
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :     outptr1[RGB_GREEN] = range_limit[y + cgreen];</span>
+<span class="lineNum">     370 </span><span class="lineNoCov">          0 :     outptr1[RGB_BLUE]  = range_limit[y + cblue];</span>
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :     outptr1 += RGB_PIXELSIZE;</span>
+<span class="lineNum">     372 </span><span class="lineNoCov">          0 :     y  = GETJSAMPLE(*inptr01++);</span>
+<span class="lineNum">     373 </span><span class="lineNoCov">          0 :     outptr1[RGB_RED]   = range_limit[y + cred];</span>
+<span class="lineNum">     374 </span><span class="lineNoCov">          0 :     outptr1[RGB_GREEN] = range_limit[y + cgreen];</span>
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :     outptr1[RGB_BLUE]  = range_limit[y + cblue];</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     outptr1 += RGB_PIXELSIZE;</span>
+<span class="lineNum">     377 </span>            :   }
+<span class="lineNum">     378 </span>            :   /* If image width is odd, do the last output column separately */
+<span class="lineNum">     379 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;output_width &amp; 1) {</span>
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :     cb = GETJSAMPLE(*inptr1);</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :     cr = GETJSAMPLE(*inptr2);</span>
+<span class="lineNum">     382 </span><span class="lineNoCov">          0 :     cred   = Crrtab[cr];</span>
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :     cgreen = (int) RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr], SCALEBITS);</span>
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 :     cblue  = Cbbtab[cb];</span>
+<span class="lineNum">     385 </span><span class="lineNoCov">          0 :     y  = GETJSAMPLE(*inptr00);</span>
+<span class="lineNum">     386 </span><span class="lineNoCov">          0 :     outptr0[RGB_RED]   = range_limit[y + cred];</span>
+<span class="lineNum">     387 </span><span class="lineNoCov">          0 :     outptr0[RGB_GREEN] = range_limit[y + cgreen];</span>
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 :     outptr0[RGB_BLUE]  = range_limit[y + cblue];</span>
+<span class="lineNum">     389 </span><span class="lineNoCov">          0 :     y  = GETJSAMPLE(*inptr01);</span>
+<span class="lineNum">     390 </span><span class="lineNoCov">          0 :     outptr1[RGB_RED]   = range_limit[y + cred];</span>
+<span class="lineNum">     391 </span><span class="lineNoCov">          0 :     outptr1[RGB_GREEN] = range_limit[y + cgreen];</span>
+<span class="lineNum">     392 </span><span class="lineNoCov">          0 :     outptr1[RGB_BLUE]  = range_limit[y + cblue];</span>
+<span class="lineNum">     393 </span>            :   }
+<span class="lineNum">     394 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     395 </span>            : 
+<span class="lineNum">     396 </span>            : 
+<span class="lineNum">     397 </span>            : /*
+<span class="lineNum">     398 </span>            :  * Module initialization routine for merged upsampling/color conversion.
+<span class="lineNum">     399 </span>            :  *
+<span class="lineNum">     400 </span>            :  * NB: this is called under the conditions determined by use_merged_upsample()
+<span class="lineNum">     401 </span>            :  * in jdmaster.c.  That routine MUST correspond to the actual capabilities
+<span class="lineNum">     402 </span>            :  * of this module; no safety checks are made here.
+<span class="lineNum">     403 </span>            :  */
+<a name="404"><span class="lineNum">     404 </span>            : </a>
+<span class="lineNum">     405 </span>            : GLOBAL(void)
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 : jinit_merged_upsampler (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     407 </span>            : {
+<span class="lineNum">     408 </span>            :   my_upsample_ptr upsample;
+<span class="lineNum">     409 </span>            : 
+<span class="lineNum">     410 </span><span class="lineNoCov">          0 :   upsample = (my_upsample_ptr) (*cinfo-&gt;mem-&gt;alloc_small)</span>
+<span class="lineNum">     411 </span>            :     ((j_common_ptr) cinfo, JPOOL_IMAGE, SIZEOF(my_upsampler));
+<span class="lineNum">     412 </span><span class="lineNoCov">          0 :   cinfo-&gt;upsample = &amp;upsample-&gt;pub;</span>
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :   upsample-&gt;pub.start_pass = start_pass_merged_upsample;</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :   upsample-&gt;pub.need_context_rows = FALSE;</span>
+<span class="lineNum">     415 </span>            : 
+<span class="lineNum">     416 </span><span class="lineNoCov">          0 :   upsample-&gt;out_row_width = cinfo-&gt;output_width * cinfo-&gt;out_color_components;</span>
+<span class="lineNum">     417 </span>            : 
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;max_v_samp_factor == 2) {</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :     upsample-&gt;pub.upsample = merged_2v_upsample;</span>
+<span class="lineNum">     420 </span><span class="lineNoCov">          0 :     upsample-&gt;upmethod = h2v2_merged_upsample;</span>
+<span class="lineNum">     421 </span>            :     /* Allocate a spare row buffer */
+<span class="lineNum">     422 </span><span class="lineNoCov">          0 :     upsample-&gt;spare_row = (JSAMPROW) (*cinfo-&gt;mem-&gt;alloc_large)</span>
+<span class="lineNum">     423 </span>            :       ((j_common_ptr) cinfo, JPOOL_IMAGE,
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :        (size_t) upsample-&gt;out_row_width * SIZEOF(JSAMPLE));</span>
+<span class="lineNum">     425 </span>            :   } else {
+<span class="lineNum">     426 </span><span class="lineNoCov">          0 :     upsample-&gt;pub.upsample = merged_1v_upsample;</span>
+<span class="lineNum">     427 </span><span class="lineNoCov">          0 :     upsample-&gt;upmethod = h2v1_merged_upsample;</span>
+<span class="lineNum">     428 </span>            :     /* No spare row needed */
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :     upsample-&gt;spare_row = NULL;</span>
+<span class="lineNum">     430 </span>            :   }
+<span class="lineNum">     431 </span>            : 
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;jpeg_color_space == JCS_BG_YCC)</span>
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :     build_bg_ycc_rgb_table(cinfo);</span>
+<span class="lineNum">     434 </span>            :   else
+<span class="lineNum">     435 </span><span class="lineNoCov">          0 :     build_ycc_rgb_table(cinfo);</span>
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     437 </span>            : 
+<span class="lineNum">     438 </span>            : #endif /* UPSAMPLE_MERGING_SUPPORTED */
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

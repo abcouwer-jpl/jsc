@@ -1,0 +1,738 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - coverage.info.cleaned - jpeg-safe/jdinput.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">jpeg-safe</a> - jdinput.c<span style="font-size: 80%;"> (source / <a href="jdinput.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">coverage.info.cleaned</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">371</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2020-11-24 12:24:12</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">9</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">          Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>            : /*</a>
+<span class="lineNum">       2 </span>            :  * jdinput.c
+<span class="lineNum">       3 </span>            :  *
+<span class="lineNum">       4 </span>            :  * Copyright (C) 1991-1997, Thomas G. Lane.
+<span class="lineNum">       5 </span>            :  * Modified 2002-2013 by Guido Vollbeding.
+<span class="lineNum">       6 </span>            :  * This file is part of the Independent JPEG Group's software.
+<span class="lineNum">       7 </span>            :  * For conditions of distribution and use, see the accompanying README file.
+<span class="lineNum">       8 </span>            :  *
+<span class="lineNum">       9 </span>            :  * This file contains input control logic for the JPEG decompressor.
+<span class="lineNum">      10 </span>            :  * These routines are concerned with controlling the decompressor's input
+<span class="lineNum">      11 </span>            :  * processing (marker reading and coefficient decoding).  The actual input
+<span class="lineNum">      12 </span>            :  * reading is done in jdmarker.c, jdhuff.c, and jdarith.c.
+<span class="lineNum">      13 </span>            :  */
+<span class="lineNum">      14 </span>            : 
+<span class="lineNum">      15 </span>            : #define JPEG_INTERNALS
+<span class="lineNum">      16 </span>            : #include &quot;jinclude.h&quot;
+<span class="lineNum">      17 </span>            : #include &quot;jpeglib.h&quot;
+<span class="lineNum">      18 </span>            : 
+<span class="lineNum">      19 </span>            : 
+<span class="lineNum">      20 </span>            : /* Private state */
+<span class="lineNum">      21 </span>            : 
+<span class="lineNum">      22 </span>            : typedef struct {
+<span class="lineNum">      23 </span>            :   struct jpeg_input_controller pub; /* public fields */
+<span class="lineNum">      24 </span>            : 
+<span class="lineNum">      25 </span>            :   int inheaders;                /* Nonzero until first SOS is reached */
+<span class="lineNum">      26 </span>            : } my_input_controller;
+<span class="lineNum">      27 </span>            : 
+<span class="lineNum">      28 </span>            : typedef my_input_controller * my_inputctl_ptr;
+<span class="lineNum">      29 </span>            : 
+<span class="lineNum">      30 </span>            : 
+<span class="lineNum">      31 </span>            : /* Forward declarations */
+<span class="lineNum">      32 </span>            : METHODDEF(int) consume_markers JPP((j_decompress_ptr cinfo));
+<span class="lineNum">      33 </span>            : 
+<span class="lineNum">      34 </span>            : 
+<span class="lineNum">      35 </span>            : /*
+<span class="lineNum">      36 </span>            :  * Routines to calculate various quantities related to the size of the image.
+<span class="lineNum">      37 </span>            :  */
+<span class="lineNum">      38 </span>            : 
+<span class="lineNum">      39 </span>            : 
+<span class="lineNum">      40 </span>            : /*
+<span class="lineNum">      41 </span>            :  * Compute output image dimensions and related values.
+<span class="lineNum">      42 </span>            :  * NOTE: this is exported for possible use by application.
+<span class="lineNum">      43 </span>            :  * Hence it mustn't do anything that can't be done twice.
+<span class="lineNum">      44 </span>            :  */
+<a name="45"><span class="lineNum">      45 </span>            : </a>
+<span class="lineNum">      46 </span>            : GLOBAL(void)
+<span class="lineNum">      47 </span><span class="lineNoCov">          0 : jpeg_core_output_dimensions (j_decompress_ptr cinfo)</span>
+<span class="lineNum">      48 </span>            : /* Do computations that are needed before master selection phase.
+<span class="lineNum">      49 </span>            :  * This function is used for transcoding and full decompression.
+<span class="lineNum">      50 </span>            :  */
+<span class="lineNum">      51 </span>            : {
+<span class="lineNum">      52 </span>            : #ifdef IDCT_SCALING_SUPPORTED
+<span class="lineNum">      53 </span>            :   int ci;
+<span class="lineNum">      54 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">      55 </span>            : 
+<span class="lineNum">      56 </span>            :   /* Compute actual output image dimensions and DCT scaling choices. */
+<span class="lineNum">      57 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom) {</span>
+<span class="lineNum">      58 </span>            :     /* Provide 1/block_size scaling */
+<span class="lineNum">      59 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">      60 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">      61 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">      62 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">      63 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 1;</span>
+<span class="lineNum">      64 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 1;</span>
+<span class="lineNum">      65 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 2) {</span>
+<span class="lineNum">      66 </span>            :     /* Provide 2/block_size scaling */
+<span class="lineNum">      67 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">      68 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 2L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">      69 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">      70 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 2L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">      71 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 2;</span>
+<span class="lineNum">      72 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 2;</span>
+<span class="lineNum">      73 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 3) {</span>
+<span class="lineNum">      74 </span>            :     /* Provide 3/block_size scaling */
+<span class="lineNum">      75 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">      76 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 3L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">      77 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">      78 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 3L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">      79 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 3;</span>
+<span class="lineNum">      80 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 3;</span>
+<span class="lineNum">      81 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 4) {</span>
+<span class="lineNum">      82 </span>            :     /* Provide 4/block_size scaling */
+<span class="lineNum">      83 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">      84 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 4L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">      85 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">      86 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 4L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">      87 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 4;</span>
+<span class="lineNum">      88 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 4;</span>
+<span class="lineNum">      89 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 5) {</span>
+<span class="lineNum">      90 </span>            :     /* Provide 5/block_size scaling */
+<span class="lineNum">      91 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">      92 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 5L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">      93 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">      94 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 5L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">      95 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 5;</span>
+<span class="lineNum">      96 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 5;</span>
+<span class="lineNum">      97 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 6) {</span>
+<span class="lineNum">      98 </span>            :     /* Provide 6/block_size scaling */
+<span class="lineNum">      99 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">     100 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 6L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     101 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">     102 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 6L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     103 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 6;</span>
+<span class="lineNum">     104 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 6;</span>
+<span class="lineNum">     105 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 7) {</span>
+<span class="lineNum">     106 </span>            :     /* Provide 7/block_size scaling */
+<span class="lineNum">     107 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">     108 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 7L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     109 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">     110 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 7L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     111 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 7;</span>
+<span class="lineNum">     112 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 7;</span>
+<span class="lineNum">     113 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 8) {</span>
+<span class="lineNum">     114 </span>            :     /* Provide 8/block_size scaling */
+<span class="lineNum">     115 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">     116 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 8L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     117 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">     118 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 8L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     119 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 8;</span>
+<span class="lineNum">     120 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 8;</span>
+<span class="lineNum">     121 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 9) {</span>
+<span class="lineNum">     122 </span>            :     /* Provide 9/block_size scaling */
+<span class="lineNum">     123 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">     124 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 9L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     125 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">     126 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 9L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     127 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 9;</span>
+<span class="lineNum">     128 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 9;</span>
+<span class="lineNum">     129 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 10) {</span>
+<span class="lineNum">     130 </span>            :     /* Provide 10/block_size scaling */
+<span class="lineNum">     131 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">     132 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 10L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     133 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">     134 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 10L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     135 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 10;</span>
+<span class="lineNum">     136 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 10;</span>
+<span class="lineNum">     137 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 11) {</span>
+<span class="lineNum">     138 </span>            :     /* Provide 11/block_size scaling */
+<span class="lineNum">     139 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">     140 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 11L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     141 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">     142 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 11L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     143 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 11;</span>
+<span class="lineNum">     144 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 11;</span>
+<span class="lineNum">     145 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 12) {</span>
+<span class="lineNum">     146 </span>            :     /* Provide 12/block_size scaling */
+<span class="lineNum">     147 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">     148 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 12L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     149 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">     150 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 12L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     151 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 12;</span>
+<span class="lineNum">     152 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 12;</span>
+<span class="lineNum">     153 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 13) {</span>
+<span class="lineNum">     154 </span>            :     /* Provide 13/block_size scaling */
+<span class="lineNum">     155 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">     156 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 13L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     157 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">     158 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 13L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     159 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 13;</span>
+<span class="lineNum">     160 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 13;</span>
+<span class="lineNum">     161 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 14) {</span>
+<span class="lineNum">     162 </span>            :     /* Provide 14/block_size scaling */
+<span class="lineNum">     163 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">     164 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 14L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     165 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">     166 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 14L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     167 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 14;</span>
+<span class="lineNum">     168 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 14;</span>
+<span class="lineNum">     169 </span><span class="lineNoCov">          0 :   } else if (cinfo-&gt;scale_num * cinfo-&gt;block_size &lt;= cinfo-&gt;scale_denom * 15) {</span>
+<span class="lineNum">     170 </span>            :     /* Provide 15/block_size scaling */
+<span class="lineNum">     171 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">     172 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 15L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     173 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">     174 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 15L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     175 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 15;</span>
+<span class="lineNum">     176 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 15;</span>
+<span class="lineNum">     177 </span>            :   } else {
+<span class="lineNum">     178 </span>            :     /* Provide 16/block_size scaling */
+<span class="lineNum">     179 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_width = (JDIMENSION)</span>
+<span class="lineNum">     180 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * 16L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     181 </span><span class="lineNoCov">          0 :     cinfo-&gt;output_height = (JDIMENSION)</span>
+<span class="lineNum">     182 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * 16L, (long) cinfo-&gt;block_size);</span>
+<span class="lineNum">     183 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_h_scaled_size = 16;</span>
+<span class="lineNum">     184 </span><span class="lineNoCov">          0 :     cinfo-&gt;min_DCT_v_scaled_size = 16;</span>
+<span class="lineNum">     185 </span>            :   }
+<span class="lineNum">     186 </span>            : 
+<span class="lineNum">     187 </span>            :   /* Recompute dimensions of components */
+<span class="lineNum">     188 </span><span class="lineNoCov">          0 :   for (ci = 0, compptr = cinfo-&gt;comp_info; ci &lt; cinfo-&gt;num_components;</span>
+<span class="lineNum">     189 </span><span class="lineNoCov">          0 :        ci++, compptr++) {</span>
+<span class="lineNum">     190 </span><span class="lineNoCov">          0 :     compptr-&gt;DCT_h_scaled_size = cinfo-&gt;min_DCT_h_scaled_size;</span>
+<span class="lineNum">     191 </span><span class="lineNoCov">          0 :     compptr-&gt;DCT_v_scaled_size = cinfo-&gt;min_DCT_v_scaled_size;</span>
+<span class="lineNum">     192 </span>            :   }
+<span class="lineNum">     193 </span>            : 
+<span class="lineNum">     194 </span>            : #else /* !IDCT_SCALING_SUPPORTED */
+<span class="lineNum">     195 </span>            : 
+<span class="lineNum">     196 </span>            :   /* Hardwire it to &quot;no scaling&quot; */
+<span class="lineNum">     197 </span>            :   cinfo-&gt;output_width = cinfo-&gt;image_width;
+<span class="lineNum">     198 </span>            :   cinfo-&gt;output_height = cinfo-&gt;image_height;
+<span class="lineNum">     199 </span>            :   /* initial_setup has already initialized DCT_scaled_size,
+<span class="lineNum">     200 </span>            :    * and has computed unscaled downsampled_width and downsampled_height.
+<span class="lineNum">     201 </span>            :    */
+<span class="lineNum">     202 </span>            : 
+<span class="lineNum">     203 </span>            : #endif /* IDCT_SCALING_SUPPORTED */
+<span class="lineNum">     204 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     205 </span>            : 
+<a name="206"><span class="lineNum">     206 </span>            : </a>
+<span class="lineNum">     207 </span>            : LOCAL(void)
+<span class="lineNum">     208 </span><span class="lineNoCov">          0 : initial_setup (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     209 </span>            : /* Called once, when first SOS marker is reached */
+<span class="lineNum">     210 </span>            : {
+<span class="lineNum">     211 </span>            :   int ci;
+<span class="lineNum">     212 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     213 </span>            : 
+<span class="lineNum">     214 </span>            :   /* Make sure image isn't bigger than I can handle */
+<span class="lineNum">     215 </span><span class="lineNoCov">          0 :   if ((long) cinfo-&gt;image_height &gt; (long) JPEG_MAX_DIMENSION ||</span>
+<span class="lineNum">     216 </span><span class="lineNoCov">          0 :       (long) cinfo-&gt;image_width &gt; (long) JPEG_MAX_DIMENSION)</span>
+<span class="lineNum">     217 </span><span class="lineNoCov">          0 :     ERREXIT1(cinfo, JERR_IMAGE_TOO_BIG, (unsigned int) JPEG_MAX_DIMENSION);</span>
+<span class="lineNum">     218 </span>            : 
+<span class="lineNum">     219 </span>            :   /* Only 8 to 12 bits data precision are supported for DCT based JPEG */
+<span class="lineNum">     220 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;data_precision &lt; 8 || cinfo-&gt;data_precision &gt; 12)</span>
+<span class="lineNum">     221 </span><span class="lineNoCov">          0 :     ERREXIT1(cinfo, JERR_BAD_PRECISION, cinfo-&gt;data_precision);</span>
+<span class="lineNum">     222 </span>            : 
+<span class="lineNum">     223 </span>            :   /* Check that number of components won't exceed internal array sizes */
+<span class="lineNum">     224 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;num_components &gt; MAX_COMPONENTS)</span>
+<span class="lineNum">     225 </span><span class="lineNoCov">          0 :     ERREXIT2(cinfo, JERR_COMPONENT_COUNT, cinfo-&gt;num_components,</span>
+<span class="lineNum">     226 </span>            :              MAX_COMPONENTS);
+<span class="lineNum">     227 </span>            : 
+<span class="lineNum">     228 </span>            :   /* Compute maximum sampling factors; check factor validity */
+<span class="lineNum">     229 </span><span class="lineNoCov">          0 :   cinfo-&gt;max_h_samp_factor = 1;</span>
+<span class="lineNum">     230 </span><span class="lineNoCov">          0 :   cinfo-&gt;max_v_samp_factor = 1;</span>
+<span class="lineNum">     231 </span><span class="lineNoCov">          0 :   for (ci = 0, compptr = cinfo-&gt;comp_info; ci &lt; cinfo-&gt;num_components;</span>
+<span class="lineNum">     232 </span><span class="lineNoCov">          0 :        ci++, compptr++) {</span>
+<span class="lineNum">     233 </span><span class="lineNoCov">          0 :     if (compptr-&gt;h_samp_factor&lt;=0 || compptr-&gt;h_samp_factor&gt;MAX_SAMP_FACTOR ||</span>
+<span class="lineNum">     234 </span><span class="lineNoCov">          0 :         compptr-&gt;v_samp_factor&lt;=0 || compptr-&gt;v_samp_factor&gt;MAX_SAMP_FACTOR)</span>
+<span class="lineNum">     235 </span><span class="lineNoCov">          0 :       ERREXIT(cinfo, JERR_BAD_SAMPLING);</span>
+<span class="lineNum">     236 </span><span class="lineNoCov">          0 :     cinfo-&gt;max_h_samp_factor = MAX(cinfo-&gt;max_h_samp_factor,</span>
+<span class="lineNum">     237 </span>            :                                    compptr-&gt;h_samp_factor);
+<span class="lineNum">     238 </span><span class="lineNoCov">          0 :     cinfo-&gt;max_v_samp_factor = MAX(cinfo-&gt;max_v_samp_factor,</span>
+<span class="lineNum">     239 </span>            :                                    compptr-&gt;v_samp_factor);
+<span class="lineNum">     240 </span>            :   }
+<span class="lineNum">     241 </span>            : 
+<span class="lineNum">     242 </span>            :   /* Derive block_size, natural_order, and lim_Se */
+<span class="lineNum">     243 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;is_baseline || (cinfo-&gt;progressive_mode &amp;&amp;</span>
+<span class="lineNum">     244 </span><span class="lineNoCov">          0 :       cinfo-&gt;comps_in_scan)) { /* no pseudo SOS marker */</span>
+<span class="lineNum">     245 </span><span class="lineNoCov">          0 :     cinfo-&gt;block_size = DCTSIZE;</span>
+<span class="lineNum">     246 </span><span class="lineNoCov">          0 :     cinfo-&gt;natural_order = jpeg_natural_order;</span>
+<span class="lineNum">     247 </span><span class="lineNoCov">          0 :     cinfo-&gt;lim_Se = DCTSIZE2-1;</span>
+<span class="lineNum">     248 </span>            :   } else
+<span class="lineNum">     249 </span><span class="lineNoCov">          0 :     switch (cinfo-&gt;Se) {</span>
+<span class="lineNum">     250 </span><span class="lineNoCov">          0 :     case (1*1-1):</span>
+<span class="lineNum">     251 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 1;</span>
+<span class="lineNum">     252 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order; /* not needed */</span>
+<span class="lineNum">     253 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = cinfo-&gt;Se;</span>
+<span class="lineNum">     254 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     255 </span><span class="lineNoCov">          0 :     case (2*2-1):</span>
+<span class="lineNum">     256 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 2;</span>
+<span class="lineNum">     257 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order2;</span>
+<span class="lineNum">     258 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = cinfo-&gt;Se;</span>
+<span class="lineNum">     259 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     260 </span><span class="lineNoCov">          0 :     case (3*3-1):</span>
+<span class="lineNum">     261 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 3;</span>
+<span class="lineNum">     262 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order3;</span>
+<span class="lineNum">     263 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = cinfo-&gt;Se;</span>
+<span class="lineNum">     264 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     265 </span><span class="lineNoCov">          0 :     case (4*4-1):</span>
+<span class="lineNum">     266 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 4;</span>
+<span class="lineNum">     267 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order4;</span>
+<span class="lineNum">     268 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = cinfo-&gt;Se;</span>
+<span class="lineNum">     269 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     270 </span><span class="lineNoCov">          0 :     case (5*5-1):</span>
+<span class="lineNum">     271 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 5;</span>
+<span class="lineNum">     272 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order5;</span>
+<span class="lineNum">     273 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = cinfo-&gt;Se;</span>
+<span class="lineNum">     274 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     275 </span><span class="lineNoCov">          0 :     case (6*6-1):</span>
+<span class="lineNum">     276 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 6;</span>
+<span class="lineNum">     277 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order6;</span>
+<span class="lineNum">     278 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = cinfo-&gt;Se;</span>
+<span class="lineNum">     279 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     280 </span><span class="lineNoCov">          0 :     case (7*7-1):</span>
+<span class="lineNum">     281 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 7;</span>
+<span class="lineNum">     282 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order7;</span>
+<span class="lineNum">     283 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = cinfo-&gt;Se;</span>
+<span class="lineNum">     284 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     285 </span><span class="lineNoCov">          0 :     case (8*8-1):</span>
+<span class="lineNum">     286 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 8;</span>
+<span class="lineNum">     287 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order;</span>
+<span class="lineNum">     288 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = DCTSIZE2-1;</span>
+<span class="lineNum">     289 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     290 </span><span class="lineNoCov">          0 :     case (9*9-1):</span>
+<span class="lineNum">     291 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 9;</span>
+<span class="lineNum">     292 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order;</span>
+<span class="lineNum">     293 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = DCTSIZE2-1;</span>
+<span class="lineNum">     294 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     295 </span><span class="lineNoCov">          0 :     case (10*10-1):</span>
+<span class="lineNum">     296 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 10;</span>
+<span class="lineNum">     297 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order;</span>
+<span class="lineNum">     298 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = DCTSIZE2-1;</span>
+<span class="lineNum">     299 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     300 </span><span class="lineNoCov">          0 :     case (11*11-1):</span>
+<span class="lineNum">     301 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 11;</span>
+<span class="lineNum">     302 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order;</span>
+<span class="lineNum">     303 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = DCTSIZE2-1;</span>
+<span class="lineNum">     304 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     305 </span><span class="lineNoCov">          0 :     case (12*12-1):</span>
+<span class="lineNum">     306 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 12;</span>
+<span class="lineNum">     307 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order;</span>
+<span class="lineNum">     308 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = DCTSIZE2-1;</span>
+<span class="lineNum">     309 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     310 </span><span class="lineNoCov">          0 :     case (13*13-1):</span>
+<span class="lineNum">     311 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 13;</span>
+<span class="lineNum">     312 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order;</span>
+<span class="lineNum">     313 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = DCTSIZE2-1;</span>
+<span class="lineNum">     314 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     315 </span><span class="lineNoCov">          0 :     case (14*14-1):</span>
+<span class="lineNum">     316 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 14;</span>
+<span class="lineNum">     317 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order;</span>
+<span class="lineNum">     318 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = DCTSIZE2-1;</span>
+<span class="lineNum">     319 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     320 </span><span class="lineNoCov">          0 :     case (15*15-1):</span>
+<span class="lineNum">     321 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 15;</span>
+<span class="lineNum">     322 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order;</span>
+<span class="lineNum">     323 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = DCTSIZE2-1;</span>
+<span class="lineNum">     324 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     325 </span><span class="lineNoCov">          0 :     case (16*16-1):</span>
+<span class="lineNum">     326 </span><span class="lineNoCov">          0 :       cinfo-&gt;block_size = 16;</span>
+<span class="lineNum">     327 </span><span class="lineNoCov">          0 :       cinfo-&gt;natural_order = jpeg_natural_order;</span>
+<span class="lineNum">     328 </span><span class="lineNoCov">          0 :       cinfo-&gt;lim_Se = DCTSIZE2-1;</span>
+<span class="lineNum">     329 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     330 </span><span class="lineNoCov">          0 :     default:</span>
+<span class="lineNum">     331 </span><span class="lineNoCov">          0 :       ERREXIT4(cinfo, JERR_BAD_PROGRESSION,</span>
+<span class="lineNum">     332 </span>            :                cinfo-&gt;Ss, cinfo-&gt;Se, cinfo-&gt;Ah, cinfo-&gt;Al);
+<span class="lineNum">     333 </span><span class="lineNoCov">          0 :       break;</span>
+<span class="lineNum">     334 </span>            :     }
+<span class="lineNum">     335 </span>            : 
+<span class="lineNum">     336 </span>            :   /* We initialize DCT_scaled_size and min_DCT_scaled_size to block_size.
+<span class="lineNum">     337 </span>            :    * In the full decompressor,
+<span class="lineNum">     338 </span>            :    * this will be overridden by jpeg_calc_output_dimensions in jdmaster.c;
+<span class="lineNum">     339 </span>            :    * but in the transcoder,
+<span class="lineNum">     340 </span>            :    * jpeg_calc_output_dimensions is not used, so we must do it here.
+<span class="lineNum">     341 </span>            :    */
+<span class="lineNum">     342 </span><span class="lineNoCov">          0 :   cinfo-&gt;min_DCT_h_scaled_size = cinfo-&gt;block_size;</span>
+<span class="lineNum">     343 </span><span class="lineNoCov">          0 :   cinfo-&gt;min_DCT_v_scaled_size = cinfo-&gt;block_size;</span>
+<span class="lineNum">     344 </span>            : 
+<span class="lineNum">     345 </span>            :   /* Compute dimensions of components */
+<span class="lineNum">     346 </span><span class="lineNoCov">          0 :   for (ci = 0, compptr = cinfo-&gt;comp_info; ci &lt; cinfo-&gt;num_components;</span>
+<span class="lineNum">     347 </span><span class="lineNoCov">          0 :        ci++, compptr++) {</span>
+<span class="lineNum">     348 </span><span class="lineNoCov">          0 :     compptr-&gt;DCT_h_scaled_size = cinfo-&gt;block_size;</span>
+<span class="lineNum">     349 </span><span class="lineNoCov">          0 :     compptr-&gt;DCT_v_scaled_size = cinfo-&gt;block_size;</span>
+<span class="lineNum">     350 </span>            :     /* Size in DCT blocks */
+<span class="lineNum">     351 </span><span class="lineNoCov">          0 :     compptr-&gt;width_in_blocks = (JDIMENSION)</span>
+<span class="lineNum">     352 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * (long) compptr-&gt;h_samp_factor,</span>
+<span class="lineNum">     353 </span><span class="lineNoCov">          0 :                     (long) (cinfo-&gt;max_h_samp_factor * cinfo-&gt;block_size));</span>
+<span class="lineNum">     354 </span><span class="lineNoCov">          0 :     compptr-&gt;height_in_blocks = (JDIMENSION)</span>
+<span class="lineNum">     355 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * (long) compptr-&gt;v_samp_factor,</span>
+<span class="lineNum">     356 </span><span class="lineNoCov">          0 :                     (long) (cinfo-&gt;max_v_samp_factor * cinfo-&gt;block_size));</span>
+<span class="lineNum">     357 </span>            :     /* downsampled_width and downsampled_height will also be overridden by
+<span class="lineNum">     358 </span>            :      * jdmaster.c if we are doing full decompression.  The transcoder library
+<span class="lineNum">     359 </span>            :      * doesn't use these values, but the calling application might.
+<span class="lineNum">     360 </span>            :      */
+<span class="lineNum">     361 </span>            :     /* Size in samples */
+<span class="lineNum">     362 </span><span class="lineNoCov">          0 :     compptr-&gt;downsampled_width = (JDIMENSION)</span>
+<span class="lineNum">     363 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width * (long) compptr-&gt;h_samp_factor,</span>
+<span class="lineNum">     364 </span><span class="lineNoCov">          0 :                     (long) cinfo-&gt;max_h_samp_factor);</span>
+<span class="lineNum">     365 </span><span class="lineNoCov">          0 :     compptr-&gt;downsampled_height = (JDIMENSION)</span>
+<span class="lineNum">     366 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height * (long) compptr-&gt;v_samp_factor,</span>
+<span class="lineNum">     367 </span><span class="lineNoCov">          0 :                     (long) cinfo-&gt;max_v_samp_factor);</span>
+<span class="lineNum">     368 </span>            :     /* Mark component needed, until color conversion says otherwise */
+<span class="lineNum">     369 </span><span class="lineNoCov">          0 :     compptr-&gt;component_needed = TRUE;</span>
+<span class="lineNum">     370 </span>            :     /* Mark no quantization table yet saved for component */
+<span class="lineNum">     371 </span><span class="lineNoCov">          0 :     compptr-&gt;quant_table = NULL;</span>
+<span class="lineNum">     372 </span>            :   }
+<span class="lineNum">     373 </span>            : 
+<span class="lineNum">     374 </span>            :   /* Compute number of fully interleaved MCU rows. */
+<span class="lineNum">     375 </span><span class="lineNoCov">          0 :   cinfo-&gt;total_iMCU_rows = (JDIMENSION)</span>
+<span class="lineNum">     376 </span><span class="lineNoCov">          0 :     jdiv_round_up((long) cinfo-&gt;image_height,</span>
+<span class="lineNum">     377 </span><span class="lineNoCov">          0 :                   (long) (cinfo-&gt;max_v_samp_factor * cinfo-&gt;block_size));</span>
+<span class="lineNum">     378 </span>            : 
+<span class="lineNum">     379 </span>            :   /* Decide whether file contains multiple scans */
+<span class="lineNum">     380 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;comps_in_scan &lt; cinfo-&gt;num_components || cinfo-&gt;progressive_mode)</span>
+<span class="lineNum">     381 </span><span class="lineNoCov">          0 :     cinfo-&gt;inputctl-&gt;has_multiple_scans = TRUE;</span>
+<span class="lineNum">     382 </span>            :   else
+<span class="lineNum">     383 </span><span class="lineNoCov">          0 :     cinfo-&gt;inputctl-&gt;has_multiple_scans = FALSE;</span>
+<span class="lineNum">     384 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     385 </span>            : 
+<a name="386"><span class="lineNum">     386 </span>            : </a>
+<span class="lineNum">     387 </span>            : LOCAL(void)
+<span class="lineNum">     388 </span><span class="lineNoCov">          0 : per_scan_setup (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     389 </span>            : /* Do computations that are needed before processing a JPEG scan */
+<span class="lineNum">     390 </span>            : /* cinfo-&gt;comps_in_scan and cinfo-&gt;cur_comp_info[] were set from SOS marker */
+<span class="lineNum">     391 </span>            : {
+<span class="lineNum">     392 </span>            :   int ci, mcublks, tmp;
+<span class="lineNum">     393 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     394 </span>            :   
+<span class="lineNum">     395 </span><span class="lineNoCov">          0 :   if (cinfo-&gt;comps_in_scan == 1) {</span>
+<span class="lineNum">     396 </span>            :     
+<span class="lineNum">     397 </span>            :     /* Noninterleaved (single-component) scan */
+<span class="lineNum">     398 </span><span class="lineNoCov">          0 :     compptr = cinfo-&gt;cur_comp_info[0];</span>
+<span class="lineNum">     399 </span>            :     
+<span class="lineNum">     400 </span>            :     /* Overall image size in MCUs */
+<span class="lineNum">     401 </span><span class="lineNoCov">          0 :     cinfo-&gt;MCUs_per_row = compptr-&gt;width_in_blocks;</span>
+<span class="lineNum">     402 </span><span class="lineNoCov">          0 :     cinfo-&gt;MCU_rows_in_scan = compptr-&gt;height_in_blocks;</span>
+<span class="lineNum">     403 </span>            :     
+<span class="lineNum">     404 </span>            :     /* For noninterleaved scan, always one block per MCU */
+<span class="lineNum">     405 </span><span class="lineNoCov">          0 :     compptr-&gt;MCU_width = 1;</span>
+<span class="lineNum">     406 </span><span class="lineNoCov">          0 :     compptr-&gt;MCU_height = 1;</span>
+<span class="lineNum">     407 </span><span class="lineNoCov">          0 :     compptr-&gt;MCU_blocks = 1;</span>
+<span class="lineNum">     408 </span><span class="lineNoCov">          0 :     compptr-&gt;MCU_sample_width = compptr-&gt;DCT_h_scaled_size;</span>
+<span class="lineNum">     409 </span><span class="lineNoCov">          0 :     compptr-&gt;last_col_width = 1;</span>
+<span class="lineNum">     410 </span>            :     /* For noninterleaved scans, it is convenient to define last_row_height
+<span class="lineNum">     411 </span>            :      * as the number of block rows present in the last iMCU row.
+<span class="lineNum">     412 </span>            :      */
+<span class="lineNum">     413 </span><span class="lineNoCov">          0 :     tmp = (int) (compptr-&gt;height_in_blocks % compptr-&gt;v_samp_factor);</span>
+<span class="lineNum">     414 </span><span class="lineNoCov">          0 :     if (tmp == 0) tmp = compptr-&gt;v_samp_factor;</span>
+<span class="lineNum">     415 </span><span class="lineNoCov">          0 :     compptr-&gt;last_row_height = tmp;</span>
+<span class="lineNum">     416 </span>            :     
+<span class="lineNum">     417 </span>            :     /* Prepare array describing MCU composition */
+<span class="lineNum">     418 </span><span class="lineNoCov">          0 :     cinfo-&gt;blocks_in_MCU = 1;</span>
+<span class="lineNum">     419 </span><span class="lineNoCov">          0 :     cinfo-&gt;MCU_membership[0] = 0;</span>
+<span class="lineNum">     420 </span>            :     
+<span class="lineNum">     421 </span>            :   } else {
+<span class="lineNum">     422 </span>            :     
+<span class="lineNum">     423 </span>            :     /* Interleaved (multi-component) scan */
+<span class="lineNum">     424 </span><span class="lineNoCov">          0 :     if (cinfo-&gt;comps_in_scan &lt;= 0 || cinfo-&gt;comps_in_scan &gt; MAX_COMPS_IN_SCAN)</span>
+<span class="lineNum">     425 </span><span class="lineNoCov">          0 :       ERREXIT2(cinfo, JERR_COMPONENT_COUNT, cinfo-&gt;comps_in_scan,</span>
+<span class="lineNum">     426 </span>            :                MAX_COMPS_IN_SCAN);
+<span class="lineNum">     427 </span>            :     
+<span class="lineNum">     428 </span>            :     /* Overall image size in MCUs */
+<span class="lineNum">     429 </span><span class="lineNoCov">          0 :     cinfo-&gt;MCUs_per_row = (JDIMENSION)</span>
+<span class="lineNum">     430 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_width,</span>
+<span class="lineNum">     431 </span><span class="lineNoCov">          0 :                     (long) (cinfo-&gt;max_h_samp_factor * cinfo-&gt;block_size));</span>
+<span class="lineNum">     432 </span><span class="lineNoCov">          0 :     cinfo-&gt;MCU_rows_in_scan = (JDIMENSION)</span>
+<span class="lineNum">     433 </span><span class="lineNoCov">          0 :       jdiv_round_up((long) cinfo-&gt;image_height,</span>
+<span class="lineNum">     434 </span><span class="lineNoCov">          0 :                     (long) (cinfo-&gt;max_v_samp_factor * cinfo-&gt;block_size));</span>
+<span class="lineNum">     435 </span>            :     
+<span class="lineNum">     436 </span><span class="lineNoCov">          0 :     cinfo-&gt;blocks_in_MCU = 0;</span>
+<span class="lineNum">     437 </span>            :     
+<span class="lineNum">     438 </span><span class="lineNoCov">          0 :     for (ci = 0; ci &lt; cinfo-&gt;comps_in_scan; ci++) {</span>
+<span class="lineNum">     439 </span><span class="lineNoCov">          0 :       compptr = cinfo-&gt;cur_comp_info[ci];</span>
+<span class="lineNum">     440 </span>            :       /* Sampling factors give # of blocks of component in each MCU */
+<span class="lineNum">     441 </span><span class="lineNoCov">          0 :       compptr-&gt;MCU_width = compptr-&gt;h_samp_factor;</span>
+<span class="lineNum">     442 </span><span class="lineNoCov">          0 :       compptr-&gt;MCU_height = compptr-&gt;v_samp_factor;</span>
+<span class="lineNum">     443 </span><span class="lineNoCov">          0 :       compptr-&gt;MCU_blocks = compptr-&gt;MCU_width * compptr-&gt;MCU_height;</span>
+<span class="lineNum">     444 </span><span class="lineNoCov">          0 :       compptr-&gt;MCU_sample_width = compptr-&gt;MCU_width * compptr-&gt;DCT_h_scaled_size;</span>
+<span class="lineNum">     445 </span>            :       /* Figure number of non-dummy blocks in last MCU column &amp; row */
+<span class="lineNum">     446 </span><span class="lineNoCov">          0 :       tmp = (int) (compptr-&gt;width_in_blocks % compptr-&gt;MCU_width);</span>
+<span class="lineNum">     447 </span><span class="lineNoCov">          0 :       if (tmp == 0) tmp = compptr-&gt;MCU_width;</span>
+<span class="lineNum">     448 </span><span class="lineNoCov">          0 :       compptr-&gt;last_col_width = tmp;</span>
+<span class="lineNum">     449 </span><span class="lineNoCov">          0 :       tmp = (int) (compptr-&gt;height_in_blocks % compptr-&gt;MCU_height);</span>
+<span class="lineNum">     450 </span><span class="lineNoCov">          0 :       if (tmp == 0) tmp = compptr-&gt;MCU_height;</span>
+<span class="lineNum">     451 </span><span class="lineNoCov">          0 :       compptr-&gt;last_row_height = tmp;</span>
+<span class="lineNum">     452 </span>            :       /* Prepare array describing MCU composition */
+<span class="lineNum">     453 </span><span class="lineNoCov">          0 :       mcublks = compptr-&gt;MCU_blocks;</span>
+<span class="lineNum">     454 </span><span class="lineNoCov">          0 :       if (cinfo-&gt;blocks_in_MCU + mcublks &gt; D_MAX_BLOCKS_IN_MCU)</span>
+<span class="lineNum">     455 </span><span class="lineNoCov">          0 :         ERREXIT(cinfo, JERR_BAD_MCU_SIZE);</span>
+<span class="lineNum">     456 </span><span class="lineNoCov">          0 :       while (mcublks-- &gt; 0) {</span>
+<span class="lineNum">     457 </span><span class="lineNoCov">          0 :         cinfo-&gt;MCU_membership[cinfo-&gt;blocks_in_MCU++] = ci;</span>
+<span class="lineNum">     458 </span>            :       }
+<span class="lineNum">     459 </span>            :     }
+<span class="lineNum">     460 </span>            :     
+<span class="lineNum">     461 </span>            :   }
+<span class="lineNum">     462 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     463 </span>            : 
+<span class="lineNum">     464 </span>            : 
+<span class="lineNum">     465 </span>            : /*
+<span class="lineNum">     466 </span>            :  * Save away a copy of the Q-table referenced by each component present
+<span class="lineNum">     467 </span>            :  * in the current scan, unless already saved during a prior scan.
+<span class="lineNum">     468 </span>            :  *
+<span class="lineNum">     469 </span>            :  * In a multiple-scan JPEG file, the encoder could assign different components
+<span class="lineNum">     470 </span>            :  * the same Q-table slot number, but change table definitions between scans
+<span class="lineNum">     471 </span>            :  * so that each component uses a different Q-table.  (The IJG encoder is not
+<span class="lineNum">     472 </span>            :  * currently capable of doing this, but other encoders might.)  Since we want
+<span class="lineNum">     473 </span>            :  * to be able to dequantize all the components at the end of the file, this
+<span class="lineNum">     474 </span>            :  * means that we have to save away the table actually used for each component.
+<span class="lineNum">     475 </span>            :  * We do this by copying the table at the start of the first scan containing
+<span class="lineNum">     476 </span>            :  * the component.
+<span class="lineNum">     477 </span>            :  * The JPEG spec prohibits the encoder from changing the contents of a Q-table
+<span class="lineNum">     478 </span>            :  * slot between scans of a component using that slot.  If the encoder does so
+<span class="lineNum">     479 </span>            :  * anyway, this decoder will simply use the Q-table values that were current
+<span class="lineNum">     480 </span>            :  * at the start of the first scan for the component.
+<span class="lineNum">     481 </span>            :  *
+<span class="lineNum">     482 </span>            :  * The decompressor output side looks only at the saved quant tables,
+<span class="lineNum">     483 </span>            :  * not at the current Q-table slots.
+<span class="lineNum">     484 </span>            :  */
+<a name="485"><span class="lineNum">     485 </span>            : </a>
+<span class="lineNum">     486 </span>            : LOCAL(void)
+<span class="lineNum">     487 </span><span class="lineNoCov">          0 : latch_quant_tables (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     488 </span>            : {
+<span class="lineNum">     489 </span>            :   int ci, qtblno;
+<span class="lineNum">     490 </span>            :   jpeg_component_info *compptr;
+<span class="lineNum">     491 </span>            :   JQUANT_TBL * qtbl;
+<span class="lineNum">     492 </span>            : 
+<span class="lineNum">     493 </span><span class="lineNoCov">          0 :   for (ci = 0; ci &lt; cinfo-&gt;comps_in_scan; ci++) {</span>
+<span class="lineNum">     494 </span><span class="lineNoCov">          0 :     compptr = cinfo-&gt;cur_comp_info[ci];</span>
+<span class="lineNum">     495 </span>            :     /* No work if we already saved Q-table for this component */
+<span class="lineNum">     496 </span><span class="lineNoCov">          0 :     if (compptr-&gt;quant_table != NULL)</span>
+<span class="lineNum">     497 </span><span class="lineNoCov">          0 :       continue;</span>
+<span class="lineNum">     498 </span>            :     /* Make sure specified quantization table is present */
+<span class="lineNum">     499 </span><span class="lineNoCov">          0 :     qtblno = compptr-&gt;quant_tbl_no;</span>
+<span class="lineNum">     500 </span><span class="lineNoCov">          0 :     if (qtblno &lt; 0 || qtblno &gt;= NUM_QUANT_TBLS ||</span>
+<span class="lineNum">     501 </span><span class="lineNoCov">          0 :         cinfo-&gt;quant_tbl_ptrs[qtblno] == NULL)</span>
+<span class="lineNum">     502 </span><span class="lineNoCov">          0 :       ERREXIT1(cinfo, JERR_NO_QUANT_TABLE, qtblno);</span>
+<span class="lineNum">     503 </span>            :     /* OK, save away the quantization table */
+<span class="lineNum">     504 </span><span class="lineNoCov">          0 :     qtbl = (JQUANT_TBL *)</span>
+<span class="lineNum">     505 </span><span class="lineNoCov">          0 :       (*cinfo-&gt;mem-&gt;alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,</span>
+<span class="lineNum">     506 </span>            :                                   SIZEOF(JQUANT_TBL));
+<span class="lineNum">     507 </span><span class="lineNoCov">          0 :     MEMCOPY(qtbl, cinfo-&gt;quant_tbl_ptrs[qtblno], SIZEOF(JQUANT_TBL));</span>
+<span class="lineNum">     508 </span><span class="lineNoCov">          0 :     compptr-&gt;quant_table = qtbl;</span>
+<span class="lineNum">     509 </span>            :   }
+<span class="lineNum">     510 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     511 </span>            : 
+<span class="lineNum">     512 </span>            : 
+<span class="lineNum">     513 </span>            : /*
+<span class="lineNum">     514 </span>            :  * Initialize the input modules to read a scan of compressed data.
+<span class="lineNum">     515 </span>            :  * The first call to this is done by jdmaster.c after initializing
+<span class="lineNum">     516 </span>            :  * the entire decompressor (during jpeg_start_decompress).
+<span class="lineNum">     517 </span>            :  * Subsequent calls come from consume_markers, below.
+<span class="lineNum">     518 </span>            :  */
+<a name="519"><span class="lineNum">     519 </span>            : </a>
+<span class="lineNum">     520 </span>            : METHODDEF(void)
+<span class="lineNum">     521 </span><span class="lineNoCov">          0 : start_input_pass (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     522 </span>            : {
+<span class="lineNum">     523 </span><span class="lineNoCov">          0 :   per_scan_setup(cinfo);</span>
+<span class="lineNum">     524 </span><span class="lineNoCov">          0 :   latch_quant_tables(cinfo);</span>
+<span class="lineNum">     525 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;entropy-&gt;start_pass) (cinfo);</span>
+<span class="lineNum">     526 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;coef-&gt;start_input_pass) (cinfo);</span>
+<span class="lineNum">     527 </span><span class="lineNoCov">          0 :   cinfo-&gt;inputctl-&gt;consume_input = cinfo-&gt;coef-&gt;consume_data;</span>
+<span class="lineNum">     528 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     529 </span>            : 
+<span class="lineNum">     530 </span>            : 
+<span class="lineNum">     531 </span>            : /*
+<span class="lineNum">     532 </span>            :  * Finish up after inputting a compressed-data scan.
+<span class="lineNum">     533 </span>            :  * This is called by the coefficient controller after it's read all
+<span class="lineNum">     534 </span>            :  * the expected data of the scan.
+<span class="lineNum">     535 </span>            :  */
+<a name="536"><span class="lineNum">     536 </span>            : </a>
+<span class="lineNum">     537 </span>            : METHODDEF(void)
+<span class="lineNum">     538 </span><span class="lineNoCov">          0 : finish_input_pass (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     539 </span>            : {
+<span class="lineNum">     540 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;entropy-&gt;finish_pass) (cinfo);</span>
+<span class="lineNum">     541 </span><span class="lineNoCov">          0 :   cinfo-&gt;inputctl-&gt;consume_input = consume_markers;</span>
+<span class="lineNum">     542 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     543 </span>            : 
+<span class="lineNum">     544 </span>            : 
+<span class="lineNum">     545 </span>            : /*
+<span class="lineNum">     546 </span>            :  * Read JPEG markers before, between, or after compressed-data scans.
+<span class="lineNum">     547 </span>            :  * Change state as necessary when a new scan is reached.
+<span class="lineNum">     548 </span>            :  * Return value is JPEG_SUSPENDED, JPEG_REACHED_SOS, or JPEG_REACHED_EOI.
+<span class="lineNum">     549 </span>            :  *
+<span class="lineNum">     550 </span>            :  * The consume_input method pointer points either here or to the
+<span class="lineNum">     551 </span>            :  * coefficient controller's consume_data routine, depending on whether
+<span class="lineNum">     552 </span>            :  * we are reading a compressed data segment or inter-segment markers.
+<span class="lineNum">     553 </span>            :  *
+<span class="lineNum">     554 </span>            :  * Note: This function should NOT return a pseudo SOS marker (with zero
+<span class="lineNum">     555 </span>            :  * component number) to the caller.  A pseudo marker received by
+<span class="lineNum">     556 </span>            :  * read_markers is processed and then skipped for other markers.
+<span class="lineNum">     557 </span>            :  */
+<a name="558"><span class="lineNum">     558 </span>            : </a>
+<span class="lineNum">     559 </span>            : METHODDEF(int)
+<span class="lineNum">     560 </span><span class="lineNoCov">          0 : consume_markers (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     561 </span>            : {
+<span class="lineNum">     562 </span><span class="lineNoCov">          0 :   my_inputctl_ptr inputctl = (my_inputctl_ptr) cinfo-&gt;inputctl;</span>
+<span class="lineNum">     563 </span>            :   int val;
+<span class="lineNum">     564 </span>            : 
+<span class="lineNum">     565 </span><span class="lineNoCov">          0 :   if (inputctl-&gt;pub.eoi_reached) /* After hitting EOI, read no further */</span>
+<span class="lineNum">     566 </span><span class="lineNoCov">          0 :     return JPEG_REACHED_EOI;</span>
+<span class="lineNum">     567 </span>            : 
+<span class="lineNum">     568 </span>            :   for (;;) {                    /* Loop to pass pseudo SOS marker */
+<span class="lineNum">     569 </span><span class="lineNoCov">          0 :     val = (*cinfo-&gt;marker-&gt;read_markers) (cinfo);</span>
+<span class="lineNum">     570 </span>            : 
+<span class="lineNum">     571 </span><span class="lineNoCov">          0 :     switch (val) {</span>
+<span class="lineNum">     572 </span><span class="lineNoCov">          0 :     case JPEG_REACHED_SOS:      /* Found SOS */</span>
+<span class="lineNum">     573 </span><span class="lineNoCov">          0 :       if (inputctl-&gt;inheaders) { /* 1st SOS */</span>
+<span class="lineNum">     574 </span><span class="lineNoCov">          0 :         if (inputctl-&gt;inheaders == 1)</span>
+<span class="lineNum">     575 </span><span class="lineNoCov">          0 :           initial_setup(cinfo);</span>
+<span class="lineNum">     576 </span><span class="lineNoCov">          0 :         if (cinfo-&gt;comps_in_scan == 0) { /* pseudo SOS marker */</span>
+<span class="lineNum">     577 </span><span class="lineNoCov">          0 :           inputctl-&gt;inheaders = 2;</span>
+<span class="lineNum">     578 </span><span class="lineNoCov">          0 :           break;</span>
+<span class="lineNum">     579 </span>            :         }
+<span class="lineNum">     580 </span><span class="lineNoCov">          0 :         inputctl-&gt;inheaders = 0;</span>
+<span class="lineNum">     581 </span>            :         /* Note: start_input_pass must be called by jdmaster.c
+<span class="lineNum">     582 </span>            :          * before any more input can be consumed.  jdapimin.c is
+<span class="lineNum">     583 </span>            :          * responsible for enforcing this sequencing.
+<span class="lineNum">     584 </span>            :          */
+<span class="lineNum">     585 </span>            :       } else {                  /* 2nd or later SOS marker */
+<span class="lineNum">     586 </span><span class="lineNoCov">          0 :         if (! inputctl-&gt;pub.has_multiple_scans)</span>
+<span class="lineNum">     587 </span><span class="lineNoCov">          0 :           ERREXIT(cinfo, JERR_EOI_EXPECTED); /* Oops, I wasn't expecting this! */</span>
+<span class="lineNum">     588 </span><span class="lineNoCov">          0 :         if (cinfo-&gt;comps_in_scan == 0) /* unexpected pseudo SOS marker */</span>
+<span class="lineNum">     589 </span><span class="lineNoCov">          0 :           break;</span>
+<span class="lineNum">     590 </span><span class="lineNoCov">          0 :         start_input_pass(cinfo);</span>
+<span class="lineNum">     591 </span>            :       }
+<span class="lineNum">     592 </span><span class="lineNoCov">          0 :       return val;</span>
+<span class="lineNum">     593 </span><span class="lineNoCov">          0 :     case JPEG_REACHED_EOI:      /* Found EOI */</span>
+<span class="lineNum">     594 </span><span class="lineNoCov">          0 :       inputctl-&gt;pub.eoi_reached = TRUE;</span>
+<span class="lineNum">     595 </span><span class="lineNoCov">          0 :       if (inputctl-&gt;inheaders) { /* Tables-only datastream, apparently */</span>
+<span class="lineNum">     596 </span><span class="lineNoCov">          0 :         if (cinfo-&gt;marker-&gt;saw_SOF)</span>
+<span class="lineNum">     597 </span><span class="lineNoCov">          0 :           ERREXIT(cinfo, JERR_SOF_NO_SOS);</span>
+<span class="lineNum">     598 </span>            :       } else {
+<span class="lineNum">     599 </span>            :         /* Prevent infinite loop in coef ctlr's decompress_data routine
+<span class="lineNum">     600 </span>            :          * if user set output_scan_number larger than number of scans.
+<span class="lineNum">     601 </span>            :          */
+<span class="lineNum">     602 </span><span class="lineNoCov">          0 :         if (cinfo-&gt;output_scan_number &gt; cinfo-&gt;input_scan_number)</span>
+<span class="lineNum">     603 </span><span class="lineNoCov">          0 :           cinfo-&gt;output_scan_number = cinfo-&gt;input_scan_number;</span>
+<span class="lineNum">     604 </span>            :       }
+<span class="lineNum">     605 </span><span class="lineNoCov">          0 :       return val;</span>
+<span class="lineNum">     606 </span><span class="lineNoCov">          0 :     case JPEG_SUSPENDED:</span>
+<span class="lineNum">     607 </span><span class="lineNoCov">          0 :       return val;</span>
+<span class="lineNum">     608 </span><span class="lineNoCov">          0 :     default:</span>
+<span class="lineNum">     609 </span><span class="lineNoCov">          0 :       return val;</span>
+<span class="lineNum">     610 </span>            :     }
+<span class="lineNum">     611 </span>            :   }
+<span class="lineNum">     612 </span>            : }
+<span class="lineNum">     613 </span>            : 
+<span class="lineNum">     614 </span>            : 
+<span class="lineNum">     615 </span>            : /*
+<span class="lineNum">     616 </span>            :  * Reset state to begin a fresh datastream.
+<span class="lineNum">     617 </span>            :  */
+<a name="618"><span class="lineNum">     618 </span>            : </a>
+<span class="lineNum">     619 </span>            : METHODDEF(void)
+<span class="lineNum">     620 </span><span class="lineNoCov">          0 : reset_input_controller (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     621 </span>            : {
+<span class="lineNum">     622 </span><span class="lineNoCov">          0 :   my_inputctl_ptr inputctl = (my_inputctl_ptr) cinfo-&gt;inputctl;</span>
+<span class="lineNum">     623 </span>            : 
+<span class="lineNum">     624 </span><span class="lineNoCov">          0 :   inputctl-&gt;pub.consume_input = consume_markers;</span>
+<span class="lineNum">     625 </span><span class="lineNoCov">          0 :   inputctl-&gt;pub.has_multiple_scans = FALSE; /* &quot;unknown&quot; would be better */</span>
+<span class="lineNum">     626 </span><span class="lineNoCov">          0 :   inputctl-&gt;pub.eoi_reached = FALSE;</span>
+<span class="lineNum">     627 </span><span class="lineNoCov">          0 :   inputctl-&gt;inheaders = 1;</span>
+<span class="lineNum">     628 </span>            :   /* Reset other modules */
+<span class="lineNum">     629 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;err-&gt;reset_error_mgr) ((j_common_ptr) cinfo);</span>
+<span class="lineNum">     630 </span><span class="lineNoCov">          0 :   (*cinfo-&gt;marker-&gt;reset_marker_reader) (cinfo);</span>
+<span class="lineNum">     631 </span>            :   /* Reset progression state -- would be cleaner if entropy decoder did this */
+<span class="lineNum">     632 </span><span class="lineNoCov">          0 :   cinfo-&gt;coef_bits = NULL;</span>
+<span class="lineNum">     633 </span><span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     634 </span>            : 
+<span class="lineNum">     635 </span>            : 
+<span class="lineNum">     636 </span>            : /*
+<span class="lineNum">     637 </span>            :  * Initialize the input controller module.
+<span class="lineNum">     638 </span>            :  * This is called only once, when the decompression object is created.
+<span class="lineNum">     639 </span>            :  */
+<a name="640"><span class="lineNum">     640 </span>            : </a>
+<span class="lineNum">     641 </span>            : GLOBAL(void)
+<span class="lineNum">     642 </span><span class="lineNoCov">          0 : jinit_input_controller (j_decompress_ptr cinfo)</span>
+<span class="lineNum">     643 </span>            : {
+<span class="lineNum">     644 </span>            :   my_inputctl_ptr inputctl;
+<span class="lineNum">     645 </span>            : 
+<span class="lineNum">     646 </span>            :   /* Create subobject in permanent pool */
+<span class="lineNum">     647 </span><span class="lineNoCov">          0 :   inputctl = (my_inputctl_ptr)</span>
+<span class="lineNum">     648 </span><span class="lineNoCov">          0 :     (*cinfo-&gt;mem-&gt;alloc_small) ((j_common_ptr) cinfo, JPOOL_PERMANENT,</span>
+<span class="lineNum">     649 </span>            :                                 SIZEOF(my_input_controller));
+<span class="lineNum">     650 </span><span class="lineNoCov">          0 :   cinfo-&gt;inputctl = &amp;inputctl-&gt;pub;</span>
+<span class="lineNum">     651 </span>            :   /* Initialize method pointers */
+<span class="lineNum">     652 </span><span class="lineNoCov">          0 :   inputctl-&gt;pub.consume_input = consume_markers;</span>
+<span class="lineNum">     653 </span><span class="lineNoCov">          0 :   inputctl-&gt;pub.reset_input_controller = reset_input_controller;</span>
+<span class="lineNum">     654 </span><span class="lineNoCov">          0 :   inputctl-&gt;pub.start_input_pass = start_input_pass;</span>
+<span class="lineNum">     655 </span><span class="lineNoCov">          0 :   inputctl-&gt;pub.finish_input_pass = finish_input_pass;</span>
+<span class="lineNum">     656 </span>            :   /* Initialize state: can't use reset_input_controller since we don't
+<span class="lineNum">     657 </span>            :    * want to try to reset other modules yet.
+<span class="lineNum">     658 </span>            :    */
+<span class="lineNum">     659 </span><span class="lineNoCov">          0 :   inputctl-&gt;pub.has_multiple_scans = FALSE; /* &quot;unknown&quot; would be better */</span>
+<span class="lineNum">     660 </span><span class="lineNoCov">          0 :   inputctl-&gt;pub.eoi_reached = FALSE;</span>
+<span class="lineNum">     661 </span><span class="lineNoCov">          0 :   inputctl-&gt;inheaders = 1;</span>
+<span class="lineNum">     662 </span><span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>
