@@ -10,7 +10,9 @@ Therefore, there are no calls for dynamic memory allocation, which could fail.
 The README for JPEG follows.
 
 These modifications were created by Neil Abcouwer at JPL. Neil is by no means 
-an expert on JPEG or compression.
+an expert on JPEG or compression. 
+
+The Apache 2.0 Licence applies to the modifications.
 
 Many features have been removed from both the compressor and decompressors.
 As features have been removed from the JPEG decompressor, there are a set of
